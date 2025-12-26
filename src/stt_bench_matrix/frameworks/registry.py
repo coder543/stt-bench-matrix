@@ -8,6 +8,8 @@ from .transformers_whisper import TransformersWhisperFramework
 from .parakeet_transformers import ParakeetTransformersFramework
 from .canary_nemo import CanaryNemoFramework
 from .parakeet_nemo import ParakeetNemoFramework
+from .faster_whisper import FasterWhisperFramework
+from .whisperx import WhisperXFramework
 
 
 def all_frameworks() -> list[Framework]:
@@ -16,6 +18,8 @@ def all_frameworks() -> list[Framework]:
         WhisperMlxFramework(),
         WhisperCppFramework(),
         TransformersWhisperFramework(),
+        FasterWhisperFramework(),
+        WhisperXFramework(),
         ParakeetTransformersFramework(),
         ParakeetNemoFramework(),
         CanaryNemoFramework(),

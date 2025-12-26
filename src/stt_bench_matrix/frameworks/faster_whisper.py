@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Callable
-import wave
-
-import numpy as np
 
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.samples import SampleSpec
@@ -16,10 +13,10 @@ from .base import FrameworkInfo
 
 
 @dataclass(frozen=True)
-class TransformersWhisperFramework:
+class FasterWhisperFramework:
     info: FrameworkInfo = FrameworkInfo(
-        name="transformers",
-        description="Hugging Face Transformers Whisper",
+        name="faster-whisper",
+        description="faster-whisper (CTranslate2) Whisper",
         supports_whisper=True,
         supports_parakeet=False,
         supports_canary=False,
@@ -31,19 +28,8 @@ class TransformersWhisperFramework:
 
 def _model_id(size: str) -> str:
     if size == "large-v3":
-        return "openai/whisper-large-v3"
-    return f"openai/whisper-{size}"
-
-
-def _load_wav_16k_mono(path: str) -> np.ndarray:
-    with wave.open(path, "rb") as wav:
-        if wav.getnchannels() != 1:
-            raise ValueError("Expected mono WAV")
-        if wav.getframerate() != 16000:
-            raise ValueError("Expected 16kHz WAV")
-        frames = wav.readframes(wav.getnframes())
-    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-    return audio
+        return "large-v3"
+    return size
 
 
 def benchmark_whisper_models(
@@ -54,7 +40,7 @@ def benchmark_whisper_models(
 ) -> list[ModelBenchmark]:
     try:
         import torch
-        from transformers import WhisperForConditionalGeneration, WhisperProcessor
+        from faster_whisper import WhisperModel
     except Exception as exc:  # noqa: BLE001
         return [
             ModelBenchmark(
@@ -63,70 +49,56 @@ def benchmark_whisper_models(
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
-                notes=f"transformers unavailable: {exc}",
+                notes=f"faster-whisper unavailable: {exc}",
             )
             for model in models
         ]
 
     cuda_ok, cuda_err = cuda_is_usable()
-    prefer_cuda = cuda_ok
-    prefer_mps = torch.backends.mps.is_available()
-    device = torch.device("cpu")
-    dtype = torch.float32
+    device = "cpu"
+    compute_type = "float32"
     device_note = "device: cpu"
-    if prefer_cuda:
-        device = torch.device("cuda:0")
-        dtype = torch.float16
+    if cuda_ok:
+        device = "cuda"
+        compute_type = "float16"
         device_note = "device: cuda"
-    elif prefer_mps:
-        device = torch.device("mps")
-        dtype = torch.float32
-        device_note = "device: mps"
+    elif torch.backends.mps.is_available():
+        device = "cpu"
+        compute_type = "float32"
+        device_note = "device: cpu (mps unsupported)"
     elif cuda_err and torch.cuda.is_available():
         device_note = f"device: cpu (cuda unavailable: {cuda_err})"
-
-    audio = _load_wav_16k_mono(str(sample.audio_path))
 
     results: list[ModelBenchmark] = []
 
     for model in models:
         model_id = _model_id(model.size)
         try:
-            processor = WhisperProcessor.from_pretrained(model_id)
             try:
-                whisper = WhisperForConditionalGeneration.from_pretrained(
-                    model_id, dtype=dtype
-                ).to(device)
+                whisper = WhisperModel(
+                    model_id,
+                    device=device,
+                    compute_type=compute_type,
+                )
             except Exception:  # noqa: BLE001
-                device = torch.device("cpu")
-                dtype = torch.float32
+                whisper = WhisperModel(
+                    model_id,
+                    device="cpu",
+                    compute_type="float32",
+                )
                 device_note = "device: cpu (cuda failed)"
-                whisper = WhisperForConditionalGeneration.from_pretrained(
-                    model_id, dtype=dtype
-                ).to(device)
 
             def run_once() -> None:
-                inputs = processor(
-                    audio,
-                    sampling_rate=16000,
-                    return_tensors="pt",
-                    padding="longest",
-                    truncation=False,
-                    return_attention_mask=True,
+                segments, _ = whisper.transcribe(
+                    str(sample.audio_path),
+                    language="en",
+                    task="transcribe",
                 )
-                input_features = inputs.input_features.to(device=device, dtype=dtype)
-                attention_mask = inputs.attention_mask.to(device)
-                with torch.no_grad():
-                    _ = whisper.generate(
-                        input_features,
-                        attention_mask=attention_mask,
-                        task="transcribe",
-                        language="en",
-                        return_timestamps=True,
-                    )
+                for _ in segments:
+                    pass
 
             stats = measure_rtfx(
-                name=f"transformers:{model.size}",
+                name=f"faster-whisper:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 config=perf_config,
@@ -149,10 +121,10 @@ def benchmark_whisper_models(
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
-                    notes=f"transformers failed: {exc}; {device_note}",
+                    notes=f"faster-whisper failed: {exc}; {device_note}",
                 )
             )
         if progress is not None:
-            progress(f"transformers {model.name} {model.size}")
+            progress(f"faster-whisper {model.name} {model.size}")
 
     return results

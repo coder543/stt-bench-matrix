@@ -18,6 +18,7 @@ class NemoRunResult:
     rtfx_mean: float | None
     rtfx_stdev: float | None
     wall_seconds: float | None
+    device: str | None
     error: str | None
 
 
@@ -48,6 +49,7 @@ def run_nemo_benchmark(
             rtfx_mean=None,
             rtfx_stdev=None,
             wall_seconds=None,
+            device=None,
             error=f"nemo runner missing at {runner_script}",
         )
     cmd = [
@@ -86,12 +88,16 @@ def run_nemo_benchmark(
         if len(error) > 400:
             error = f"{error[:400]}…"
         return NemoRunResult(
-            rtfx_mean=None, rtfx_stdev=None, wall_seconds=None, error=error
+            rtfx_mean=None, rtfx_stdev=None, wall_seconds=None, device=None, error=error
         )
     stdout = proc.stdout.strip()
     if not stdout:
         return NemoRunResult(
-            rtfx_mean=None, rtfx_stdev=None, wall_seconds=None, error="nemo runner empty output"
+            rtfx_mean=None,
+            rtfx_stdev=None,
+            wall_seconds=None,
+            device=None,
+            error="nemo runner empty output",
         )
     payload_line = stdout.splitlines()[-1]
     try:
@@ -101,12 +107,14 @@ def run_nemo_benchmark(
             rtfx_mean=None,
             rtfx_stdev=None,
             wall_seconds=None,
+            device=None,
             error=f"nemo runner invalid JSON: {payload_line}",
         )
     return NemoRunResult(
         rtfx_mean=payload.get("rtfx_mean"),
         rtfx_stdev=payload.get("rtfx_stdev"),
         wall_seconds=payload.get("wall_seconds"),
+        device=payload.get("device"),
         error=None,
     )
 
@@ -144,6 +152,10 @@ def benchmark_nemo_models(
                 )
             )
         else:
+            device_note = f"device: {run_result.device}" if run_result.device else None
+            notes = f"model: {model_id}"
+            if device_note:
+                notes = f"{notes}; {device_note}"
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -151,7 +163,7 @@ def benchmark_nemo_models(
                     rtfx_mean=run_result.rtfx_mean,
                     rtfx_stdev=run_result.rtfx_stdev,
                     bench_seconds=run_result.wall_seconds,
-                    notes=f"model: {model_id}",
+                    notes=notes,
                 )
             )
         if progress is not None:

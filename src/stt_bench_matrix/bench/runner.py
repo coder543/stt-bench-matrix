@@ -22,6 +22,14 @@ from ..frameworks.transformers_whisper import (
     benchmark_whisper_models as benchmark_transformers_models,
     TransformersWhisperFramework,
 )
+from ..frameworks.faster_whisper import (
+    benchmark_whisper_models as benchmark_faster_whisper_models,
+    FasterWhisperFramework,
+)
+from ..frameworks.whisperx import (
+    benchmark_whisper_models as benchmark_whisperx_models,
+    WhisperXFramework,
+)
 from ..frameworks.parakeet_transformers import (
     benchmark_parakeet_models,
     ParakeetTransformersFramework,
@@ -84,6 +92,20 @@ def _benchmark_framework(
             perf_config=perf_config,
             progress=progress_cb,
         )
+    elif isinstance(framework, FasterWhisperFramework):
+        models = benchmark_faster_whisper_models(
+            sample,
+            whisper_model_list,
+            perf_config=perf_config,
+            progress=progress_cb,
+        )
+    elif isinstance(framework, WhisperXFramework):
+        models = benchmark_whisperx_models(
+            sample,
+            whisper_model_list,
+            perf_config=perf_config,
+            progress=progress_cb,
+        )
     elif isinstance(framework, ParakeetTransformersFramework):
         parakeet_list = parakeet_model_list
         models = benchmark_parakeet_models(
@@ -136,6 +158,7 @@ def run_benchmarks(
     quick: bool = False,
     quick_2: bool = False,
     parakeet_only: bool = False,
+    frameworks: set[str] | None = None,
 ) -> BenchmarkResults:
     start = time.perf_counter()
     _ = use_cache
@@ -170,6 +193,8 @@ def run_benchmarks(
     frameworks_to_run: list[Framework] = []
     for framework in all_frameworks():
         if parakeet_only and not framework.info.supports_parakeet:
+            continue
+        if frameworks is not None and framework.info.name not in frameworks:
             continue
         if not framework.is_supported(host):
             continue

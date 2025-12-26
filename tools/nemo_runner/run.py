@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import logging
 import os
@@ -74,6 +75,33 @@ def _configure_logging() -> None:
     os.environ.setdefault("NEMO_LOG_LEVEL", "ERROR")
 
 
+def _cuda_is_usable() -> tuple[bool, str | None]:
+    try:
+        import torch
+    except Exception:
+        return (False, "torch not available")
+    if not torch.cuda.is_available():
+        return (False, "cuda not available")
+    for lib in (
+        "libcudnn_ops.so.9.1.0",
+        "libcudnn_ops.so.9.1",
+        "libcudnn_ops.so.9",
+        "libcudnn_ops.so",
+    ):
+        try:
+            ctypes.CDLL(lib)
+            break
+        except OSError:
+            continue
+    else:
+        return (False, "cudnn not found")
+    try:
+        _ = torch.cuda.get_device_name(0)
+    except Exception as exc:
+        return (False, f"cuda init failed: {exc}")
+    return (True, None)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", required=True, choices=("canary", "parakeet"))
@@ -89,9 +117,14 @@ def main() -> int:
 
     import torch
 
+    cuda_ok, cuda_err = _cuda_is_usable()
+    device = torch.device("cuda") if cuda_ok else torch.device("cpu")
+    device_note = "cuda" if cuda_ok else "cpu"
+    if cuda_err and torch.cuda.is_available():
+        device_note = f"cpu (cuda unavailable: {cuda_err})"
+
     model = _load_model(args.task, args.model_id, args.model_type)
     model.eval()
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = model.to(device)
     if args.task == "canary":
         decode_cfg = model.cfg.decoding
@@ -136,6 +169,7 @@ def main() -> int:
         "rtfx_mean": rtfx_mean,
         "rtfx_stdev": rtfx_stdev,
         "wall_seconds": wall_seconds,
+        "device": device_note,
     }
     print(json.dumps(payload))
     return 0

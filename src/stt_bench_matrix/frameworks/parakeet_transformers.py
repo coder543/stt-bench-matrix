@@ -11,6 +11,7 @@ from ..bench.samples import SampleSpec
 from ..bench.types import ModelBenchmark
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
+from ..platforms.cuda import cuda_is_usable
 from .base import FrameworkInfo
 
 
@@ -74,14 +75,22 @@ def benchmark_parakeet_models(
             for model in models
         ]
 
+    cuda_ok, cuda_err = cuda_is_usable()
+    prefer_cuda = cuda_ok
+    prefer_mps = torch.backends.mps.is_available()
     device = torch.device("cpu")
     dtype = torch.float32
-    if torch.cuda.is_available():
+    device_note = "device: cpu"
+    if prefer_cuda:
         device = torch.device("cuda:0")
         dtype = torch.float16
-    elif torch.backends.mps.is_available():
+        device_note = "device: cuda"
+    elif prefer_mps:
         device = torch.device("mps")
         dtype = torch.float32
+        device_note = "device: mps"
+    elif cuda_err and torch.cuda.is_available():
+        device_note = f"device: cpu (cuda unavailable: {cuda_err})"
 
     audio = _load_wav_16k_mono(str(sample.audio_path))
 
@@ -96,7 +105,9 @@ def benchmark_parakeet_models(
                     model_id, dtype=dtype
                 ).to(device)
             except Exception:  # noqa: BLE001
+                device = torch.device("cpu")
                 dtype = torch.float32
+                device_note = "device: cpu (cuda failed)"
                 asr_model = AutoModelForCTC.from_pretrained(
                     model_id, dtype=dtype
                 ).to(device)
@@ -158,7 +169,7 @@ def benchmark_parakeet_models(
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
-                    notes=f"model: {model_id}",
+                    notes=f"model: {model_id}; {device_note}",
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -169,7 +180,7 @@ def benchmark_parakeet_models(
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
-                    notes=f"parakeet failed: {type(exc).__name__}: {exc}",
+                    notes=f"parakeet failed: {type(exc).__name__}: {exc}; {device_note}",
                 )
             )
         if progress is not None:

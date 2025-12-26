@@ -39,6 +39,10 @@ def render_markdown(results: BenchmarkResults) -> str:
         system_lines.append(f"- CPU: {results.host.cpu}")
     if ram_mem:
         system_lines.append(f"- System RAM: {ram_mem}")
+    if results.host.cuda_error:
+        system_lines.append(f"- CUDA: {results.host.cuda_error}")
+    elif results.host.cuda_available:
+        system_lines.append("- CUDA: available")
     git_rev = _git_revision()
     if git_rev:
         system_lines.append(f"- Git: {git_rev}")

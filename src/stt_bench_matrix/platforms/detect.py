@@ -6,6 +6,7 @@ import subprocess
 import sys
 from typing import Tuple
 
+from .cuda import cuda_is_usable
 
 @dataclass(frozen=True)
 class HostInfo:
@@ -16,6 +17,8 @@ class HostInfo:
     ram_bytes: int | None
     accelerator: str
     accelerator_memory_bytes: int | None
+    cuda_available: bool
+    cuda_error: str | None
     is_macos: bool
     is_linux: bool
     is_apple_silicon: bool
@@ -31,7 +34,7 @@ def detect_host() -> HostInfo:
     is_apple_silicon = is_macos and machine in {"arm64", "aarch64"}
     cpu = _cpu_name(os_name)
     ram_bytes = _ram_bytes(os_name)
-    accelerator, accelerator_memory_bytes = _accelerator_info()
+    accelerator, accelerator_memory_bytes, cuda_available, cuda_error = _accelerator_info()
 
     return HostInfo(
         os=os_name,
@@ -41,6 +44,8 @@ def detect_host() -> HostInfo:
         ram_bytes=ram_bytes,
         accelerator=accelerator,
         accelerator_memory_bytes=accelerator_memory_bytes,
+        cuda_available=cuda_available,
+        cuda_error=cuda_error,
         is_macos=is_macos,
         is_linux=is_linux,
         is_apple_silicon=is_apple_silicon,
@@ -87,15 +92,18 @@ def _ram_bytes(os_name: str) -> int | None:
     return None
 
 
-def _accelerator_info() -> Tuple[str, int | None]:
+def _accelerator_info() -> Tuple[str, int | None, bool, str | None]:
     try:
         import torch
     except Exception:
-        return ("CPU", None)
-    if torch.cuda.is_available():
+        return ("CPU", None, False, "torch not available")
+    cuda_ok, cuda_err = cuda_is_usable()
+    if cuda_ok:
         name = torch.cuda.get_device_name(0)
         props = torch.cuda.get_device_properties(0)
-        return (name, int(props.total_memory))
+        return (name, int(props.total_memory), True, None)
+    if torch.cuda.is_available() and cuda_err:
+        return ("CPU", None, True, cuda_err)
     if torch.backends.mps.is_available():
-        return ("Apple GPU (MPS)", None)
-    return ("CPU", None)
+        return ("Apple GPU (MPS)", None, False, None)
+    return ("CPU", None, False, None)

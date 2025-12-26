@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from .bench.runner import run_benchmarks
 from .platforms.detect import detect_host
 from .reporting.markdown import render_markdown
 from .frameworks.whisper_cpp import has_whisper_cli
+from .frameworks.registry import all_frameworks
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit raw JSON instead of Markdown",
     )
+    parser.add_argument(
+        "--frameworks",
+        help="Comma-separated list of frameworks to run (by name)",
+    )
     return parser
 
 
@@ -49,7 +55,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     host = detect_host()
+    selected_frameworks = None
+    if args.frameworks:
+        selected_frameworks = {name.strip() for name in args.frameworks.split(",") if name.strip()}
+        available = {framework.info.name for framework in all_frameworks()}
+        unknown = sorted(selected_frameworks - available)
+        if unknown:
+            parser.error(
+                f"Unknown framework(s): {', '.join(unknown)}. "
+                f"Available: {', '.join(sorted(available))}"
+            )
     warn_missing_whisper_cli = host.is_macos or host.is_linux
+    if selected_frameworks is not None and "whisper.cpp" not in selected_frameworks:
+        warn_missing_whisper_cli = False
     if warn_missing_whisper_cli and not has_whisper_cli():
         warning = (
             "warning: whisper.cpp not found (whisper-cli missing from PATH); "
@@ -63,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         quick=args.quick,
         quick_2=args.quick_2,
         parakeet_only=args.parakeet,
+        frameworks=selected_frameworks,
     )
 
     if args.json:
