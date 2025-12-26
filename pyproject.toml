@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stt-bench-matrix"
+version = "0.1.0"
+description = "Cross-platform STT benchmarking tool"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "stt-bench-matrix contributors" }]
+dependencies = [
+  "mlx-whisper",
+  "lightning-whisper-mlx",
+  "pyperf",
+  "huggingface-hub",
+  "transformers>=4.57.1",
+  "torch",
+  "librosa",
+  "faster-whisper",
+  "whisperx",
+]
+
+[project.scripts]
+stt-bench-matrix = "stt_bench_matrix.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stt_bench_matrix"]
+
+[dependency-groups]
+dev = [
+  "ty",
+]
