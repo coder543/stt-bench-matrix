@@ -25,14 +25,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable model caching for this run",
     )
     parser.add_argument(
-        "--quick",
-        action="store_true",
-        help="Run a fast dev-only benchmark (Whisper tiny only)",
+        "--warmups",
+        type=int,
+        default=1,
+        help="Number of warmup runs per model (default: 1)",
     )
     parser.add_argument(
-        "--quick-2",
-        action="store_true",
-        help="Run a fast dev-only benchmark (Whisper tiny + base)",
+        "--runs",
+        type=int,
+        default=None,
+        help="Number of measured runs per model (disables auto mode)",
+    )
+    parser.add_argument(
+        "--auto-min-runs",
+        type=int,
+        default=5,
+        help="Minimum runs in auto mode (default: 5)",
+    )
+    parser.add_argument(
+        "--auto-max-runs",
+        type=int,
+        default=30,
+        help="Maximum runs in auto mode (default: 30)",
+    )
+    parser.add_argument(
+        "--auto-target-cv",
+        type=float,
+        default=0.05,
+        help="Target coefficient of variation in auto mode (default: 0.05)",
     )
     parser.add_argument(
         "--parakeet",
@@ -62,6 +82,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--frameworks",
         help="Comma-separated list of frameworks to run (by name)",
     )
+    parser.add_argument(
+        "--models",
+        help=(
+            "Comma-separated list of model sizes or names to run "
+            "(e.g., tiny,base,parakeet-ctc)"
+        ),
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="Print available frameworks and models, then exit",
+    )
     return parser
 
 
@@ -70,6 +102,33 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     host = detect_host()
+    if args.list:
+        from .models.registry import (
+            whisper_models,
+            whisper_optional_models,
+            parakeet_models,
+            canary_models,
+            moonshine_models,
+            granite_models,
+        )
+
+        print("Frameworks:")
+        for framework in all_frameworks():
+            print(f"- {framework.info.name}: {framework.info.description}")
+        print("")
+        print("Models:")
+        def _print_models(label: str, models, optional: bool = False) -> None:
+            suffix = " (optional)" if optional else ""
+            print(f"- {label}{suffix}:")
+            for model in models:
+                variant = f" ({model.variant})" if model.variant else ""
+                print(f"  - {model.name} {model.size}{variant}")
+        _print_models("whisper", whisper_models() + whisper_optional_models())
+        _print_models("parakeet", parakeet_models())
+        _print_models("canary", canary_models())
+        _print_models("moonshine", moonshine_models())
+        _print_models("granite", granite_models())
+        return 0
     selected_frameworks = None
     if args.frameworks:
         selected_frameworks = {name.strip() for name in args.frameworks.split(",") if name.strip()}
@@ -80,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"Unknown framework(s): {', '.join(unknown)}. "
                 f"Available: {', '.join(sorted(available))}"
             )
+    model_filters = None
+    if args.models:
+        model_filters = {name.strip().lower() for name in args.models.split(",") if name.strip()}
     warn_missing_whisper_cli = host.is_macos or host.is_linux
     if selected_frameworks is not None and "whisper.cpp" not in selected_frameworks:
         warn_missing_whisper_cli = False
@@ -98,11 +160,16 @@ def main(argv: list[str] | None = None) -> int:
         use_cache=not args.no_cache,
         sample=sample,
         language=args.lang,
-        quick=args.quick,
-        quick_2=args.quick_2,
+        warmups=args.warmups,
+        runs=args.runs if args.runs is not None else 3,
+        auto=args.runs is None,
+        auto_min_runs=args.auto_min_runs,
+        auto_max_runs=args.auto_max_runs,
+        auto_target_cv=args.auto_target_cv,
         parakeet_only=args.parakeet,
         heavy=args.heavy,
         frameworks=selected_frameworks,
+        model_filters=model_filters,
     )
 
     import json

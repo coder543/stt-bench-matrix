@@ -70,10 +70,13 @@ This repository is scaffolding the macOS implementation first. See `TODO.md` for
 
 ---
 
-## Planned CLI (draft)
+## CLI
 
 ```bash
 uv run stt-bench-matrix
+uv run stt-bench-matrix --frameworks whisper.cpp --models tiny,base
+uv run stt-bench-matrix --runs 3
+uv run stt-bench-matrix --list
 ```
 
 ---
@@ -82,4 +85,3 @@ uv run stt-bench-matrix
 
 - Model caching should be **transparent** and **stable**, with a single cache directory per framework.
 - The tool should degrade gracefully: if a framework isn’t supported on a machine, it should be skipped with a clear reason.
-

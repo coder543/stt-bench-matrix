@@ -117,28 +117,51 @@ def benchmark_moonshine_models(
             asr_model.eval()
             last_transcript: str | None = None
 
+            max_output_tokens = (
+                asr_model.generation_config.max_length
+                if asr_model.generation_config.max_length
+                else asr_model.config.max_position_embeddings
+            )
+            if max_output_tokens is None:
+                max_output_tokens = 194
+            max_chunk_seconds = max_output_tokens / 6.5
+            chunk_seconds = max(10.0, min(30.0, max_chunk_seconds))
+            chunk_samples = int(processor.feature_extractor.sampling_rate * chunk_seconds)
+
             def run_once() -> None:
                 nonlocal last_transcript
-                inputs = processor(
-                    audio,
-                    sampling_rate=processor.feature_extractor.sampling_rate,
-                    return_tensors="pt",
-                )
-                inputs = inputs.to(device=device, dtype=dtype)
-                token_limit_factor = (
-                    6.5 / processor.feature_extractor.sampling_rate
-                )
-                seq_lens = inputs.attention_mask.sum(dim=-1)
-                max_length = int((seq_lens * token_limit_factor).max().item())
-                with torch.inference_mode():
-                    generated_ids = asr_model.generate(
-                        **inputs, max_length=max_length, do_sample=False
+                chunks: list[np.ndarray]
+                if audio.shape[0] > chunk_samples:
+                    chunks = [
+                        audio[start : start + chunk_samples]
+                        for start in range(0, audio.shape[0], chunk_samples)
+                    ]
+                else:
+                    chunks = [audio]
+                outputs: list[str] = []
+                for chunk in chunks:
+                    inputs = processor(
+                        chunk,
+                        sampling_rate=processor.feature_extractor.sampling_rate,
+                        return_tensors="pt",
                     )
-                decoded = processor.batch_decode(
-                    generated_ids, skip_special_tokens=True
-                )
-                if decoded:
-                    last_transcript = decoded[0].strip() or None
+                    inputs = inputs.to(device=device, dtype=dtype)
+                    token_limit_factor = (
+                        6.5 / processor.feature_extractor.sampling_rate
+                    )
+                    seq_lens = inputs.attention_mask.sum(dim=-1)
+                    max_length = int((seq_lens * token_limit_factor).max().item())
+                    max_length = max(1, min(max_output_tokens, max_length))
+                    with torch.inference_mode():
+                        generated_ids = asr_model.generate(
+                            **inputs, max_length=max_length, do_sample=False
+                        )
+                    decoded = processor.batch_decode(
+                        generated_ids, skip_special_tokens=True
+                    )
+                    if decoded and decoded[0].strip():
+                        outputs.append(decoded[0].strip())
+                last_transcript = " ".join(outputs).strip() or None
 
             stats = measure_rtfx(
                 name=f"moonshine:{model.size}",

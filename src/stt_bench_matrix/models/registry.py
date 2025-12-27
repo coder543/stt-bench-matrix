@@ -21,6 +21,17 @@ def whisper_models() -> list[ModelSpec]:
     ]
 
 
+def whisper_optional_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(name="whisper", size="tiny.en", family="whisper"),
+        ModelSpec(name="whisper", size="base.en", family="whisper"),
+        ModelSpec(name="whisper", size="small.en", family="whisper"),
+        ModelSpec(name="whisper", size="medium.en", family="whisper"),
+        ModelSpec(name="whisper", size="large-v1", family="whisper"),
+        ModelSpec(name="whisper", size="large-v2", family="whisper"),
+    ]
+
+
 def canary_models() -> list[ModelSpec]:
     return [
         ModelSpec(name="canary", size="180m-flash", family="canary"),

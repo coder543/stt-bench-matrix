@@ -14,9 +14,11 @@
 - `output/`: auto‑saved benchmark markdown + json (git‑ignored).
 
 ## Build, Test, and Development Commands
-- `uv run stt-bench-matrix --quick`: run the fast dev matrix.
-- `uv run stt-bench-matrix --frameworks whisper.cpp`: run a specific framework.
+- `uv run stt-bench-matrix`: run full benchmark suite with auto-run stabilization enabled.
+- `uv run stt-bench-matrix --frameworks whisper.cpp --models tiny,base`: run a targeted subset.
+- `uv run stt-bench-matrix --runs 3`: fixed number of runs (disables auto mode).
 - `uv run stt-bench-matrix --heavy`: include heavy models (Granite 8B).
+- `uv run stt-bench-matrix --list`: print known frameworks/models.
 - `uv run ty check`: typecheck (primary validation step).
 - `docker build -f Dockerfile.cuda -t stt-bench-matrix:cuda .`: build CUDA image.
 - `docker run --rm --gpus all -v "$(pwd)/output:/workspace/output" -v "$HOME/.cache/huggingface:/root/.cache/huggingface" stt-bench-matrix:cuda --quick`: container quick run with cache/output mounts.

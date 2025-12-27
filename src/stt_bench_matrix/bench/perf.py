@@ -15,6 +15,10 @@ from .samples import SampleSpec
 class PerfConfig:
     warmups: int
     runs: int
+    auto: bool = True
+    auto_min_runs: int = 5
+    auto_max_runs: int = 30
+    auto_target_cv: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -40,11 +44,34 @@ def measure_rtfx(
         run_once()
 
     elapsed_values: list[float] = []
-    for _ in range(config.runs):
-        start = time.perf_counter()
-        run_once()
-        elapsed = time.perf_counter() - start
-        elapsed_values.append(elapsed)
+    if config.auto:
+        target_cv = max(0.0, config.auto_target_cv)
+        min_runs = max(1, config.auto_min_runs)
+        max_runs = max(min_runs, config.auto_max_runs)
+        while len(elapsed_values) < max_runs:
+            start = time.perf_counter()
+            run_once()
+            elapsed = time.perf_counter() - start
+            elapsed_values.append(elapsed)
+            if len(elapsed_values) < min_runs:
+                continue
+            mean = statistics.fmean(elapsed_values)
+            if mean <= 0:
+                continue
+            stdev = (
+                statistics.stdev(elapsed_values)
+                if len(elapsed_values) >= 2
+                else 0.0
+            )
+            cv = stdev / mean if mean else 0.0
+            if cv <= target_cv:
+                break
+    else:
+        for _ in range(config.runs):
+            start = time.perf_counter()
+            run_once()
+            elapsed = time.perf_counter() - start
+            elapsed_values.append(elapsed)
 
     # Store elapsed seconds with a valid pyperf unit to satisfy metadata rules.
     _ = pyperf.Run(

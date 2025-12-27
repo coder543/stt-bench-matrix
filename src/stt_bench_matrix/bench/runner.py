@@ -54,6 +54,7 @@ from ..frameworks.granite_transformers import (
 )
 from ..models.registry import (
     whisper_models,
+    whisper_optional_models,
     parakeet_models,
     canary_models,
     moonshine_models,
@@ -204,10 +205,15 @@ def run_benchmarks(
     use_cache: bool,
     sample: SampleSpec,
     language: str,
-    quick: bool = False,
-    quick_2: bool = False,
+    warmups: int = 1,
+    runs: int = 3,
+    auto: bool = True,
+    auto_min_runs: int = 5,
+    auto_max_runs: int = 30,
+    auto_target_cv: float = 0.05,
     parakeet_only: bool = False,
     heavy: bool = False,
+    model_filters: set[str] | None = None,
     frameworks: set[str] | None = None,
 ) -> BenchmarkResults:
     start = time.perf_counter()
@@ -217,45 +223,34 @@ def run_benchmarks(
     parakeet_model_list = parakeet_models()
     moonshine_model_list = moonshine_models()
     granite_model_list = granite_models() if heavy else []
-    if quick_2:
-        whisper_model_list = [
-            ModelSpec(name="whisper", size="tiny", family="whisper"),
-            ModelSpec(name="whisper", size="base", family="whisper"),
-        ]
-        canary_model_list = [canary_model_list[0]]
-        moonshine_model_list = [
-            ModelSpec(name="moonshine", size="tiny", family="moonshine"),
-            ModelSpec(name="moonshine", size="base", family="moonshine"),
-        ]
-        parakeet_model_list = [
-            ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),
-            ModelSpec(name="parakeet-rnnt", size="0.6b", family="parakeet"),
-            ModelSpec(name="parakeet-tdt", size="0.6b-v3", family="parakeet"),
-            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="tdt"),
-            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="ctc"),
-            ModelSpec(name="parakeet-realtime-eou", size="120m-v1", family="parakeet"),
-        ]
-        granite_model_list = []
-        perf_config = PerfConfig(warmups=0, runs=2)
-    elif quick:
-        whisper_model_list = [ModelSpec(name="whisper", size="tiny", family="whisper")]
-        canary_model_list = [canary_model_list[0]]
-        moonshine_model_list = [
-            ModelSpec(name="moonshine", size="tiny", family="moonshine"),
-            ModelSpec(name="moonshine", size="base", family="moonshine"),
-        ]
-        parakeet_model_list = [
-            ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),
-            ModelSpec(name="parakeet-rnnt", size="0.6b", family="parakeet"),
-            ModelSpec(name="parakeet-tdt", size="0.6b-v3", family="parakeet"),
-            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="tdt"),
-            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="ctc"),
-            ModelSpec(name="parakeet-realtime-eou", size="120m-v1", family="parakeet"),
-        ]
-        granite_model_list = []
-        perf_config = PerfConfig(warmups=0, runs=2)
-    else:
-        perf_config = PerfConfig(warmups=1, runs=3)
+    perf_config = PerfConfig(
+        warmups=warmups,
+        runs=runs,
+        auto=auto,
+        auto_min_runs=auto_min_runs,
+        auto_max_runs=auto_max_runs,
+        auto_target_cv=auto_target_cv,
+    )
+
+    if model_filters:
+        whisper_model_list = whisper_model_list + whisper_optional_models()
+
+        def _match_model(model: ModelSpec) -> bool:
+            candidates = {
+                model.name.lower(),
+                model.size.lower(),
+            }
+            if model.variant:
+                candidates.add(model.variant.lower())
+            candidates.add(f"{model.name.lower()}:{model.size.lower()}")
+            candidates.add(f"{model.name.lower()}-{model.size.lower()}")
+            return any(token in candidates for token in model_filters)
+
+        whisper_model_list = [m for m in whisper_model_list if _match_model(m)]
+        canary_model_list = [m for m in canary_model_list if _match_model(m)]
+        parakeet_model_list = [m for m in parakeet_model_list if _match_model(m)]
+        moonshine_model_list = [m for m in moonshine_model_list if _match_model(m)]
+        granite_model_list = [m for m in granite_model_list if _match_model(m)]
     frameworks_to_run: list[Framework] = []
     for framework in all_frameworks():
         if parakeet_only and not framework.info.supports_parakeet:
