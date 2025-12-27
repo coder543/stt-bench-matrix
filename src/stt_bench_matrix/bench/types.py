@@ -7,6 +7,14 @@ from ..platforms.detect import HostInfo
 
 
 @dataclass(frozen=True)
+class RunResult:
+    rtfx: float | None
+    seconds: float | None
+    wer: float | None
+    transcript: str | None
+
+
+@dataclass(frozen=True)
 class ModelBenchmark:
     model_name: str
     model_size: str
@@ -18,6 +26,8 @@ class ModelBenchmark:
     notes: str | None
     transcript: str | None
     wer: float | None
+    wer_stdev: float | None
+    runs: Sequence[RunResult]
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ import numpy as np
 
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.samples import SampleSpec
-from ..bench.types import ModelBenchmark
+from ..bench.types import ModelBenchmark, RunResult
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
 from ..platforms.cuda import cuda_is_usable
@@ -57,6 +57,7 @@ def benchmark_parakeet_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     supported_models = [model for model in models if model.name == "parakeet-ctc"]
     if not supported_models:
@@ -77,6 +78,8 @@ def benchmark_parakeet_models(
                 notes=f"parakeet transformers unavailable: {exc}",
                 transcript=None,
                 wer=None,
+                wer_stdev=None,
+                runs=[],
             )
             for model in models
         ]
@@ -153,24 +156,26 @@ def benchmark_parakeet_models(
                     predicted_ids = torch.argmax(logits, dim=-1)
                 return processor.batch_decode(predicted_ids, skip_special_tokens=True)
 
-            def run_once() -> None:
-                nonlocal last_transcript
+            def run_once() -> str | None:
                 if max_samples is not None and audio.shape[0] > max_samples:
                     decoded = []
                     for start in range(0, audio.shape[0], max_samples):
                         end = start + max_samples
                         segment = audio[start:end]
                         decoded.extend(run_segment(segment))
-                    last_transcript = " ".join(text.strip() for text in decoded if text).strip() or None
+                    return " ".join(text.strip() for text in decoded if text).strip() or None
                 else:
                     decoded = run_segment(audio)
-                    last_transcript = " ".join(text.strip() for text in decoded if text).strip() or None
+                    return " ".join(text.strip() for text in decoded if text).strip() or None
 
             stats = measure_rtfx(
                 name=f"parakeet:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 config=perf_config,
+            )
+            last_transcript = (
+                stats.transcripts[-1] if stats.transcripts else None
             )
             results.append(
                 ModelBenchmark(
@@ -184,8 +189,24 @@ def benchmark_parakeet_models(
                     notes=f"model: {model_id}",
                     transcript=last_transcript,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[
+                        RunResult(
+                            rtfx=rtfx,
+                            seconds=elapsed,
+                            wer=None,
+                            transcript=transcript,
+                        )
+                        for rtfx, elapsed, transcript in zip(
+                            stats.rtfx_values,
+                            stats.elapsed_values,
+                            stats.transcripts,
+                        )
+                    ],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         except Exception as exc:  # noqa: BLE001
             note = f"parakeet failed: {type(exc).__name__}: {exc}"
             if cuda_err and torch.cuda.is_available():
@@ -202,8 +223,12 @@ def benchmark_parakeet_models(
                     notes=note,
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         if progress is not None:
             progress(f"parakeet {model.name} {model.size}")
 

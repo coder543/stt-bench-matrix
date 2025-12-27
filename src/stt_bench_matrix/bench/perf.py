@@ -27,13 +27,15 @@ class PerfStats:
     rtfx_mean: float
     rtfx_stdev: float
     wall_seconds: float
+    elapsed_values: list[float]
+    transcripts: list[str | None]
 
 
 def measure_rtfx(
     *,
     name: str,
     sample: SampleSpec,
-    run_once: Callable[[], None],
+    run_once: Callable[[], str | None],
     config: PerfConfig,
 ) -> PerfStats:
     start_wall = time.perf_counter()
@@ -44,15 +46,17 @@ def measure_rtfx(
         run_once()
 
     elapsed_values: list[float] = []
+    transcripts: list[str | None] = []
     if config.auto:
         target_cv = max(0.0, config.auto_target_cv)
         min_runs = max(1, config.auto_min_runs)
         max_runs = max(min_runs, config.auto_max_runs)
         while len(elapsed_values) < max_runs:
             start = time.perf_counter()
-            run_once()
+            transcript = run_once()
             elapsed = time.perf_counter() - start
             elapsed_values.append(elapsed)
+            transcripts.append(transcript)
             if len(elapsed_values) < min_runs:
                 continue
             mean = statistics.fmean(elapsed_values)
@@ -69,9 +73,10 @@ def measure_rtfx(
     else:
         for _ in range(config.runs):
             start = time.perf_counter()
-            run_once()
+            transcript = run_once()
             elapsed = time.perf_counter() - start
             elapsed_values.append(elapsed)
+            transcripts.append(transcript)
 
     # Store elapsed seconds with a valid pyperf unit to satisfy metadata rules.
     _ = pyperf.Run(
@@ -90,4 +95,6 @@ def measure_rtfx(
         rtfx_mean=rtfx_mean,
         rtfx_stdev=rtfx_stdev,
         wall_seconds=wall_seconds,
+        elapsed_values=elapsed_values,
+        transcripts=transcripts,
     )

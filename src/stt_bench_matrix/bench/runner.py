@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import statistics
 from dataclasses import replace
 
 from .types import BenchmarkResults, FrameworkBenchmark, ModelBenchmark
@@ -77,6 +78,7 @@ def _benchmark_framework(
     sample: SampleSpec,
     language: str,
     progress: ProgressTracker | None,
+    on_result=None,
 ) -> FrameworkBenchmark | None:
     if not framework.is_supported(host):
         return None
@@ -91,6 +93,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, LightningWhisperMlxFramework):
         models = benchmark_lightning_whisper_models(
@@ -99,6 +102,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, WhisperCppFramework):
         models = benchmark_whisper_cpp_models(
@@ -107,6 +111,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, TransformersWhisperFramework):
         models = benchmark_transformers_models(
@@ -115,6 +120,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, FasterWhisperFramework):
         models = benchmark_faster_whisper_models(
@@ -123,6 +129,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, WhisperXFramework):
         models = benchmark_whisperx_models(
@@ -131,6 +138,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, ParakeetTransformersFramework):
         parakeet_list = parakeet_model_list
@@ -139,6 +147,7 @@ def _benchmark_framework(
             parakeet_list,
             perf_config=perf_config,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, ParakeetNemoFramework):
         parakeet_list = parakeet_model_list
@@ -147,6 +156,7 @@ def _benchmark_framework(
             parakeet_list,
             perf_config=perf_config,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, CanaryNemoFramework):
         canary_list = canary_model_list
@@ -155,6 +165,7 @@ def _benchmark_framework(
             canary_list,
             perf_config=perf_config,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, MoonshineTransformersFramework):
         moonshine_list = moonshine_model_list
@@ -164,6 +175,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     elif isinstance(framework, GraniteTransformersFramework):
         granite_list = granite_model_list
@@ -173,6 +185,7 @@ def _benchmark_framework(
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
+            on_result=on_result,
         )
     else:
         # Placeholder: real benchmarking will be added once framework runners exist.
@@ -188,6 +201,8 @@ def _benchmark_framework(
                 notes="Benchmark not yet implemented",
                 transcript=None,
                 wer=None,
+                wer_stdev=None,
+                runs=[],
             )
             for model in whisper_model_list
         ]
@@ -215,6 +230,8 @@ def run_benchmarks(
     heavy: bool = False,
     model_filters: set[str] | None = None,
     frameworks: set[str] | None = None,
+    include_run_transcripts: bool = False,
+    on_update=None,
 ) -> BenchmarkResults:
     start = time.perf_counter()
     _ = use_cache
@@ -281,8 +298,84 @@ def run_benchmarks(
     progress = ProgressTracker(total_steps=total_steps)
     progress.start()
     framework_results: list[FrameworkBenchmark] = []
+
+    def _apply_wer(models: list[FrameworkBenchmark]) -> list[FrameworkBenchmark]:
+        if not (sample.transcript_path and sample.transcript_path.exists()):
+            return models
+        reference_text = sample.transcript_path.read_text(encoding="utf-8")
+        updated_frameworks: list[FrameworkBenchmark] = []
+        for framework in models:
+            updated_models: list[ModelBenchmark] = []
+            for model in framework.models:
+                run_wers: list[float] = []
+                updated_runs = []
+                for run in model.runs:
+                    wer = None
+                    if run.transcript:
+                        wer = word_error_rate(reference_text, run.transcript)
+                        run_wers.append(wer)
+                    updated_runs.append(
+                        replace(
+                            run,
+                            wer=wer,
+                            transcript=run.transcript if include_run_transcripts else None,
+                        )
+                    )
+                wer_mean = None
+                wer_stdev = None
+                if run_wers:
+                    wer_mean = statistics.fmean(run_wers)
+                    wer_stdev = (
+                        statistics.stdev(run_wers) if len(run_wers) >= 2 else 0.0
+                    )
+                updated_models.append(
+                    replace(
+                        model,
+                        wer=wer_mean,
+                        wer_stdev=wer_stdev,
+                        runs=updated_runs,
+                    )
+                )
+            updated_frameworks.append(replace(framework, models=updated_models))
+        return updated_frameworks
+
+    def _emit_update() -> None:
+        if on_update is None:
+            return
+        updated_frameworks = _apply_wer(framework_results)
+        interim = BenchmarkResults(
+            host=host,
+            frameworks=updated_frameworks,
+            total_seconds=time.perf_counter() - start,
+            sample_name=sample.name,
+            sample_path=str(sample.audio_path),
+            language=language,
+        )
+        on_update(interim)
+
     for framework in frameworks_to_run:
-        result = _benchmark_framework(
+        models_list: list[ModelBenchmark] = []
+        framework_results.append(
+            FrameworkBenchmark(
+                framework=framework.info.name,
+                supported=True,
+                reason=None,
+                models=models_list,
+            )
+        )
+        framework_index = len(framework_results) - 1
+
+        def _on_result(model_result: ModelBenchmark) -> None:
+            models_list.append(model_result)
+            framework_results[framework_index] = FrameworkBenchmark(
+                framework=framework.info.name,
+                supported=True,
+                reason=None,
+                models=models_list,
+            )
+            _emit_update()
+
+        _benchmark_framework(
             framework,
             host,
             whisper_model_list,
@@ -295,27 +388,16 @@ def run_benchmarks(
             sample=sample,
             language=language,
             progress=progress,
+            on_result=_on_result,
         )
-        if result is not None:
-            framework_results.append(result)
-    if sample.transcript_path and sample.transcript_path.exists():
-        reference_text = sample.transcript_path.read_text(encoding="utf-8")
-        updated_frameworks: list[FrameworkBenchmark] = []
-        for framework in framework_results:
-            updated_models: list[ModelBenchmark] = []
-            for model in framework.models:
-                wer = None
-                if model.transcript:
-                    wer = word_error_rate(reference_text, model.transcript)
-                updated_models.append(replace(model, wer=wer))
-            updated_frameworks.append(replace(framework, models=updated_models))
-        framework_results = updated_frameworks
+    _emit_update()
     total_seconds = time.perf_counter() - start
-    return BenchmarkResults(
+    final_results = BenchmarkResults(
         host=host,
-        frameworks=framework_results,
+        frameworks=_apply_wer(framework_results),
         total_seconds=total_seconds,
         sample_name=sample.name,
         sample_path=str(sample.audio_path),
         language=language,
     )
+    return final_results

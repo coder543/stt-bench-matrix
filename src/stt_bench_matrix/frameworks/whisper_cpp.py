@@ -15,7 +15,7 @@ from huggingface_hub.errors import LocalEntryNotFoundError
 
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.samples import SampleSpec
-from ..bench.types import ModelBenchmark
+from ..bench.types import ModelBenchmark, RunResult
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
 from .base import FrameworkInfo
@@ -65,6 +65,7 @@ def benchmark_whisper_models(
     perf_config: PerfConfig,
     language: str,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     whisper_cli = _whisper_cli()
     if whisper_cli is None:
@@ -80,6 +81,8 @@ def benchmark_whisper_models(
                 notes="whisper-cli not found in PATH",
                 transcript=None,
                 wer=None,
+                wer_stdev=None,
+                runs=[],
             )
             for model in models
         ]
@@ -112,8 +115,8 @@ def benchmark_whisper_models(
                     text=True,
                 )
 
-            def run_once(out_base: str) -> float:
-                nonlocal device_note, note_suffix, timings_missing, last_transcript
+            def run_once(out_base: str) -> tuple[float, str | None]:
+                nonlocal device_note, note_suffix, timings_missing
                 base_cmd = [
                     whisper_cli,
                     "-m",
@@ -148,39 +151,52 @@ def benchmark_whisper_models(
                         )
                     device_note = "cpu"
                     note_suffix = f"; gpu failed: exit {result.returncode}"
+                    transcript = None
+                    txt_path = f"{out_base}.txt"
+                    if os.path.exists(txt_path):
+                        try:
+                            transcript = (
+                                open(txt_path, encoding="utf-8").read().strip() or None
+                            )
+                        except Exception:
+                            transcript = None
                     match = timing_re.search(output)
                     if match:
-                        return float(match.group(1)) / 1000.0
+                        return (float(match.group(1)) / 1000.0, transcript)
                     if not timings_missing:
                         note_suffix = f"{note_suffix}; timings missing"
                         timings_missing = True
-                    return wall_elapsed
+                    return (wall_elapsed, transcript)
                 gpu_match = gpu_re.search(output)
                 if gpu_match:
                     device_note = "cuda" if gpu_match.group(1) == "1" else "cpu"
+                transcript = None
                 txt_path = f"{out_base}.txt"
                 if os.path.exists(txt_path):
                     try:
-                        last_transcript = (
+                        transcript = (
                             open(txt_path, encoding="utf-8").read().strip() or None
                         )
                     except Exception:
-                        last_transcript = last_transcript
+                        transcript = None
                 match = timing_re.search(output)
                 if match:
-                    return float(match.group(1)) / 1000.0
+                    return (float(match.group(1)) / 1000.0, transcript)
                 if not timings_missing:
                     note_suffix = f"{note_suffix}; timings missing"
                     timings_missing = True
-                return wall_elapsed
+                return (wall_elapsed, transcript)
 
             elapsed_values: list[float] = []
+            transcripts: list[str | None] = []
             with tempfile.TemporaryDirectory() as temp_dir:
                 out_base = os.path.join(temp_dir, "whisper_output")
                 for _ in range(perf_config.warmups):
                     _ = run_once(out_base)
                 for _ in range(perf_config.runs):
-                    elapsed_values.append(run_once(out_base))
+                    elapsed, transcript = run_once(out_base)
+                    elapsed_values.append(elapsed)
+                    transcripts.append(transcript)
 
             rtfx_values = [sample.duration_seconds / v for v in elapsed_values]
             rtfx_mean = statistics.fmean(rtfx_values)
@@ -188,6 +204,7 @@ def benchmark_whisper_models(
                 statistics.stdev(rtfx_values) if len(rtfx_values) >= 2 else 0.0
             )
             wall_seconds = sum(elapsed_values)
+            last_transcript = transcripts[-1] if transcripts else None
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -200,8 +217,24 @@ def benchmark_whisper_models(
                     notes=f"model: {filename}{note_suffix}",
                     transcript=last_transcript,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[
+                        RunResult(
+                            rtfx=rtfx,
+                            seconds=elapsed,
+                            wer=None,
+                            transcript=transcript,
+                        )
+                        for rtfx, elapsed, transcript in zip(
+                            rtfx_values,
+                            elapsed_values,
+                            transcripts,
+                        )
+                    ],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         except Exception as exc:  # noqa: BLE001
             results.append(
                 ModelBenchmark(
@@ -215,8 +248,12 @@ def benchmark_whisper_models(
                     notes=f"whisper.cpp failed: {exc}",
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         if progress is not None:
             progress(f"whisper.cpp {model.name} {model.size}")
 

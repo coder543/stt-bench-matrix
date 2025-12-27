@@ -273,8 +273,7 @@ def main() -> int:
             return joined or None
         return _text_from_obj(output)
 
-    def run_once() -> None:
-        nonlocal last_transcript
+    def run_once() -> str | None:
         autocast_dtype = os.environ.get("STT_BENCH_NEMO_AUTOCAST_DTYPE", "fp16").lower()
         autocast_dtype_t = torch.float16 if autocast_dtype in {"fp16", "float16"} else torch.bfloat16
         autocast_cm = (
@@ -290,8 +289,7 @@ def main() -> int:
                     num_workers=0,
                     verbose=False,
                 )
-                last_transcript = _extract_transcript(outputs)
-                return
+                return _extract_transcript(outputs)
             with tempfile.TemporaryDirectory() as temp_dir:
                 chunk_paths = _write_wav_chunks(args.audio_path, args.chunk_seconds, temp_dir)
                 outputs = model.transcribe(
@@ -300,22 +298,25 @@ def main() -> int:
                     num_workers=0,
                     verbose=False,
                 )
-                last_transcript = _extract_transcript(outputs)
+                return _extract_transcript(outputs)
 
     wall_start = time.perf_counter()
     for _ in range(args.warmups):
         run_once()
 
     elapsed_values: list[float] = []
+    transcripts: list[str | None] = []
     for _ in range(args.runs):
         start = time.perf_counter()
-        run_once()
+        transcript = run_once()
         elapsed_values.append(time.perf_counter() - start)
+        transcripts.append(transcript)
     wall_seconds = time.perf_counter() - wall_start
 
     rtfx_values = [sample_seconds / v for v in elapsed_values]
     rtfx_mean = statistics.fmean(rtfx_values)
     rtfx_stdev = statistics.stdev(rtfx_values) if len(rtfx_values) >= 2 else 0.0
+    last_transcript = transcripts[-1] if transcripts else None
     payload = {
         "rtfx_mean": rtfx_mean,
         "rtfx_stdev": rtfx_stdev,
@@ -323,6 +324,8 @@ def main() -> int:
         "device": device_note,
         "decode": decode_note,
         "transcript": last_transcript,
+        "elapsed_values": elapsed_values,
+        "transcripts": transcripts,
     }
     print(json.dumps(payload))
     return 0

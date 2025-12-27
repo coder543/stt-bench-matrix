@@ -5,7 +5,7 @@ from typing import Callable
 
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.samples import SampleSpec
-from ..bench.types import ModelBenchmark
+from ..bench.types import ModelBenchmark, RunResult
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
 from ..platforms.cuda import cuda_is_usable
@@ -40,6 +40,7 @@ def benchmark_whisper_models(
     perf_config: PerfConfig,
     language: str,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     try:
         import torch
@@ -57,6 +58,8 @@ def benchmark_whisper_models(
                 notes=f"faster-whisper unavailable: {exc}",
                 transcript=None,
                 wer=None,
+                wer_stdev=None,
+                runs=[],
             )
             for model in models
         ]
@@ -96,8 +99,7 @@ def benchmark_whisper_models(
                 device_note = "device: cpu (cuda failed)"
             last_transcript: str | None = None
 
-            def run_once() -> None:
-                nonlocal last_transcript
+            def run_once() -> str | None:
                 segments, _ = whisper.transcribe(
                     str(sample.audio_path),
                     language=language,
@@ -108,13 +110,17 @@ def benchmark_whisper_models(
                     text = getattr(segment, "text", None)
                     if text:
                         texts.append(text.strip())
-                last_transcript = " ".join(texts).strip() or None
+                transcript = " ".join(texts).strip() or None
+                return transcript
 
             stats = measure_rtfx(
                 name=f"faster-whisper:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 config=perf_config,
+            )
+            last_transcript = (
+                stats.transcripts[-1] if stats.transcripts else None
             )
             results.append(
                 ModelBenchmark(
@@ -128,8 +134,24 @@ def benchmark_whisper_models(
                     notes=f"model: {model_id}",
                     transcript=last_transcript,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[
+                        RunResult(
+                            rtfx=rtfx,
+                            seconds=elapsed,
+                            wer=None,
+                            transcript=transcript,
+                        )
+                        for rtfx, elapsed, transcript in zip(
+                            stats.rtfx_values,
+                            stats.elapsed_values,
+                            stats.transcripts,
+                        )
+                    ],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         except Exception as exc:  # noqa: BLE001
             note = f"faster-whisper failed: {exc}"
             if cuda_err and torch.cuda.is_available():
@@ -146,8 +168,12 @@ def benchmark_whisper_models(
                     notes=note,
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         if progress is not None:
             progress(f"faster-whisper {model.name} {model.size}")
 

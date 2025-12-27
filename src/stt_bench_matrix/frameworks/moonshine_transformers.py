@@ -8,7 +8,7 @@ import numpy as np
 
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.samples import SampleSpec
-from ..bench.types import ModelBenchmark
+from ..bench.types import ModelBenchmark, RunResult
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
 from ..platforms.cuda import cuda_is_usable
@@ -56,6 +56,7 @@ def benchmark_moonshine_models(
     perf_config: PerfConfig,
     language: str,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     del language
     try:
@@ -74,6 +75,8 @@ def benchmark_moonshine_models(
                 notes=f"moonshine unavailable: {exc}",
                 transcript=None,
                 wer=None,
+                wer_stdev=None,
+                runs=[],
             )
             for model in models
         ]
@@ -128,7 +131,7 @@ def benchmark_moonshine_models(
             chunk_seconds = max(10.0, min(30.0, max_chunk_seconds))
             chunk_samples = int(processor.feature_extractor.sampling_rate * chunk_seconds)
 
-            def run_once() -> None:
+            def run_once() -> str | None:
                 nonlocal last_transcript
                 chunks: list[np.ndarray]
                 if audio.shape[0] > chunk_samples:
@@ -161,13 +164,16 @@ def benchmark_moonshine_models(
                     )
                     if decoded and decoded[0].strip():
                         outputs.append(decoded[0].strip())
-                last_transcript = " ".join(outputs).strip() or None
+                return " ".join(outputs).strip() or None
 
             stats = measure_rtfx(
                 name=f"moonshine:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 config=perf_config,
+            )
+            last_transcript = (
+                stats.transcripts[-1] if stats.transcripts else None
             )
             results.append(
                 ModelBenchmark(
@@ -181,8 +187,24 @@ def benchmark_moonshine_models(
                     notes=f"model: {model_id}",
                     transcript=last_transcript,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[
+                        RunResult(
+                            rtfx=rtfx,
+                            seconds=elapsed,
+                            wer=None,
+                            transcript=transcript,
+                        )
+                        for rtfx, elapsed, transcript in zip(
+                            stats.rtfx_values,
+                            stats.elapsed_values,
+                            stats.transcripts,
+                        )
+                    ],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         except Exception as exc:  # noqa: BLE001
             note = f"moonshine failed: {exc}"
             if cuda_err and torch.cuda.is_available():
@@ -199,8 +221,12 @@ def benchmark_moonshine_models(
                     notes=note,
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         if progress is not None:
             progress(f"moonshine {model.name} {model.size}")
 

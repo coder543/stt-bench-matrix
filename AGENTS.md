@@ -17,6 +17,8 @@
 - `uv run stt-bench-matrix`: run full benchmark suite with auto-run stabilization enabled.
 - `uv run stt-bench-matrix --frameworks whisper.cpp --models tiny,base`: run a targeted subset.
 - `uv run stt-bench-matrix --runs 3`: fixed number of runs (disables auto mode).
+- `uv run stt-bench-matrix --auto-min-runs 3 --auto-target-cv 0.03`: tune auto-run.
+- `uv run stt-bench-matrix --include-per-run-transcripts`: include per-run transcripts in JSON.
 - `uv run stt-bench-matrix --heavy`: include heavy models (Granite 8B).
 - `uv run stt-bench-matrix --list`: print known frameworks/models.
 - `uv run ty check`: typecheck (primary validation step).

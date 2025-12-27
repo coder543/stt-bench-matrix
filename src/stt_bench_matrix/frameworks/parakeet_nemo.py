@@ -83,6 +83,7 @@ def benchmark_parakeet_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     return benchmark_nemo_models(
         task="parakeet",
@@ -93,4 +94,5 @@ def benchmark_parakeet_models(
         model_type_fn=_model_type,
         decode_mode_fn=_decode_mode,
         progress=progress,
+        on_result=on_result,
     )

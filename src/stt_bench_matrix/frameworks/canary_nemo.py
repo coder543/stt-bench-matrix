@@ -43,6 +43,7 @@ def benchmark_canary_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     return benchmark_nemo_models(
         task="canary",
@@ -52,4 +53,5 @@ def benchmark_canary_models(
         model_id_fn=_model_id,
         chunk_seconds=20.0,
         progress=progress,
+        on_result=on_result,
     )

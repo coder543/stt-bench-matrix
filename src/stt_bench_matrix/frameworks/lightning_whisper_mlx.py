@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Callable
 from .base import FrameworkInfo
 from ..platforms.detect import HostInfo
 from ..bench.samples import SampleSpec
-from ..bench.types import ModelBenchmark
+from ..bench.types import ModelBenchmark, RunResult
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..models.registry import ModelSpec
 
@@ -43,6 +43,7 @@ def benchmark_whisper_models(
     perf_config: PerfConfig,
     language: str,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     try:
         from lightning_whisper_mlx import LightningWhisperMLX  # type: ignore[import-not-found]
@@ -59,6 +60,8 @@ def benchmark_whisper_models(
                 notes=f"lightning-whisper-mlx unavailable: {exc}",
                 transcript=None,
                 wer=None,
+                wer_stdev=None,
+                runs=[],
             )
             for model in models
         ]
@@ -91,8 +94,24 @@ def benchmark_whisper_models(
                     notes=f"model: {model_name}",
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[
+                        RunResult(
+                            rtfx=rtfx,
+                            seconds=elapsed,
+                            wer=None,
+                            transcript=transcript,
+                        )
+                        for rtfx, elapsed, transcript in zip(
+                            stats.rtfx_values,
+                            stats.elapsed_values,
+                            stats.transcripts,
+                        )
+                    ],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
             if progress is not None:
                 progress(f"lightning-whisper-mlx {model.name} {model.size}")
         except Exception as exc:  # noqa: BLE001
@@ -108,8 +127,12 @@ def benchmark_whisper_models(
                     notes=f"lightning-whisper-mlx failed: {exc}",
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
             if progress is not None:
                 progress(f"lightning-whisper-mlx {model.name} {model.size}")
 

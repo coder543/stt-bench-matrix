@@ -90,6 +90,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--include-per-run-transcripts",
+        action="store_true",
+        help="Include per-run transcripts in JSON output (large)",
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         help="Print available frameworks and models, then exit",
@@ -155,6 +160,37 @@ def main(argv: list[str] | None = None) -> int:
     sample = default_sample()
     if args.sample:
         sample = sample_from_path(Path(args.sample))
+    output_dir = Path("output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_path = output_dir / f"{timestamp}.md"
+    output_json_path = output_dir / f"{timestamp}.json"
+
+    def _atomic_write_text(path: Path, contents: str) -> None:
+        import os
+        import tempfile
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        ) as handle:
+            handle.write(contents)
+            temp_name = handle.name
+        os.replace(temp_name, path)
+
+    def _write_outputs(results) -> None:
+        import json
+
+        markdown = render_markdown(results)
+        json_payload = json.dumps(asdict(results), indent=2)
+        _atomic_write_text(output_path, markdown)
+        _atomic_write_text(output_json_path, json_payload)
+
     results = run_benchmarks(
         host=host,
         use_cache=not args.no_cache,
@@ -170,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
         heavy=args.heavy,
         frameworks=selected_frameworks,
         model_filters=model_filters,
+        include_run_transcripts=args.include_per_run_transcripts,
+        on_update=_write_outputs,
     )
 
     import json
@@ -186,11 +224,5 @@ def main(argv: list[str] | None = None) -> int:
             "skipping whisper.cpp benchmarks"
         )
         print(warning)
-    output_dir = Path("output")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_path = output_dir / f"{timestamp}.md"
-    output_path.write_text(markdown, encoding="utf-8")
-    output_json_path = output_dir / f"{timestamp}.json"
-    output_json_path.write_text(json_payload, encoding="utf-8")
+    _write_outputs(results)
     return 0

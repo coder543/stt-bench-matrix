@@ -8,7 +8,7 @@ import os
 from typing import Sequence
 
 from ..bench.perf import PerfConfig
-from ..bench.types import ModelBenchmark
+from ..bench.types import ModelBenchmark, RunResult
 from ..bench.samples import SampleSpec
 from ..models.registry import ModelSpec
 
@@ -21,6 +21,8 @@ class NemoRunResult:
     device: str | None
     decode: str | None
     transcript: str | None
+    elapsed_values: list[float]
+    transcripts: list[str | None]
     error: str | None
 
 
@@ -55,6 +57,8 @@ def run_nemo_benchmark(
             device=None,
             decode=None,
             transcript=None,
+            elapsed_values=[],
+            transcripts=[],
             error=f"nemo runner missing at {runner_script}",
         )
     env = dict(os.environ)
@@ -103,6 +107,8 @@ def run_nemo_benchmark(
             device=None,
             decode=None,
             transcript=None,
+            elapsed_values=[],
+            transcripts=[],
             error=error,
         )
     stdout = proc.stdout.strip()
@@ -114,6 +120,8 @@ def run_nemo_benchmark(
             device=None,
             decode=None,
             transcript=None,
+            elapsed_values=[],
+            transcripts=[],
             error="nemo runner empty output",
         )
     payload_line = stdout.splitlines()[-1]
@@ -127,6 +135,8 @@ def run_nemo_benchmark(
             device=None,
             decode=None,
             transcript=None,
+            elapsed_values=[],
+            transcripts=[],
             error=f"nemo runner invalid JSON: {payload_line}",
         )
     return NemoRunResult(
@@ -136,6 +146,8 @@ def run_nemo_benchmark(
         device=payload.get("device"),
         decode=payload.get("decode"),
         transcript=payload.get("transcript"),
+        elapsed_values=payload.get("elapsed_values") or [],
+        transcripts=payload.get("transcripts") or [],
         error=None,
     )
 
@@ -151,6 +163,7 @@ def benchmark_nemo_models(
     decode_mode_fn=None,
     chunk_seconds: float | None = None,
     progress=None,
+    on_result=None,
 ) -> list[ModelBenchmark]:
     results: list[ModelBenchmark] = []
     for model in models:
@@ -179,12 +192,34 @@ def benchmark_nemo_models(
                     notes=f"nemo failed: {run_result.error}",
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         else:
             notes = f"model: {model_id}"
             if run_result.decode:
                 notes = f"{notes}; decode: {run_result.decode}"
+            run_rtfx_values = [
+                sample.duration_seconds / v
+                for v in run_result.elapsed_values
+                if v > 0
+            ]
+            runs = [
+                RunResult(
+                    rtfx=rtfx,
+                    seconds=elapsed,
+                    wer=None,
+                    transcript=transcript,
+                )
+                for rtfx, elapsed, transcript in zip(
+                    run_rtfx_values,
+                    run_result.elapsed_values,
+                    run_result.transcripts,
+                )
+            ]
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -197,8 +232,12 @@ def benchmark_nemo_models(
                     notes=notes,
                     transcript=run_result.transcript,
                     wer=None,
+                    wer_stdev=None,
+                    runs=runs,
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         if progress is not None:
             progress(f"{task} {model.name} {model.size}")
     return results

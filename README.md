@@ -76,6 +76,7 @@ This repository is scaffolding the macOS implementation first. See `TODO.md` for
 uv run stt-bench-matrix
 uv run stt-bench-matrix --frameworks whisper.cpp --models tiny,base
 uv run stt-bench-matrix --runs 3
+uv run stt-bench-matrix --auto-min-runs 3 --auto-target-cv 0.03
 uv run stt-bench-matrix --list
 ```
 

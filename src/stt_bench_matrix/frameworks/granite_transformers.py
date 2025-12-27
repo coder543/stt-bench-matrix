@@ -8,7 +8,7 @@ import numpy as np
 
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.samples import SampleSpec
-from ..bench.types import ModelBenchmark
+from ..bench.types import ModelBenchmark, RunResult
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
 from ..platforms.cuda import cuda_is_usable
@@ -56,6 +56,7 @@ def benchmark_granite_models(
     perf_config: PerfConfig,
     language: str,
     progress: Callable[[str], None] | None = None,
+    on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     del language
     if not models:
@@ -76,6 +77,8 @@ def benchmark_granite_models(
                 notes=f"granite unavailable: {exc}",
                 transcript=None,
                 wer=None,
+                wer_stdev=None,
+                runs=[],
             )
             for model in models
         ]
@@ -121,7 +124,7 @@ def benchmark_granite_models(
             asr_model.eval()
             last_transcript: str | None = None
 
-            def run_once() -> None:
+            def run_once() -> str | None:
                 nonlocal last_transcript
                 audio_tensor = torch.from_numpy(audio).unsqueeze(0)
                 chat = [
@@ -172,13 +175,17 @@ def benchmark_granite_models(
                     clean_up_tokenization_spaces=True,
                 )
                 if decoded:
-                    last_transcript = decoded[0].strip() or None
+                    return decoded[0].strip() or None
+                return None
 
             stats = measure_rtfx(
                 name=f"granite:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 config=perf_config,
+            )
+            last_transcript = (
+                stats.transcripts[-1] if stats.transcripts else None
             )
             results.append(
                 ModelBenchmark(
@@ -192,8 +199,24 @@ def benchmark_granite_models(
                     notes=f"model: {model_id}",
                     transcript=last_transcript,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[
+                        RunResult(
+                            rtfx=rtfx,
+                            seconds=elapsed,
+                            wer=None,
+                            transcript=transcript,
+                        )
+                        for rtfx, elapsed, transcript in zip(
+                            stats.rtfx_values,
+                            stats.elapsed_values,
+                            stats.transcripts,
+                        )
+                    ],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         except Exception as exc:  # noqa: BLE001
             note = f"granite failed: {exc}"
             if cuda_err and torch.cuda.is_available():
@@ -210,8 +233,12 @@ def benchmark_granite_models(
                     notes=note,
                     transcript=None,
                     wer=None,
+                    wer_stdev=None,
+                    runs=[],
                 )
             )
+            if on_result is not None:
+                on_result(results[-1])
         if progress is not None:
             progress(f"granite {model.name} {model.size}")
 
