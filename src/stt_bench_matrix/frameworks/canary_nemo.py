@@ -48,5 +48,6 @@ def benchmark_canary_models(
         models=models,
         perf_config=perf_config,
         model_id_fn=_model_id,
+        chunk_seconds=20.0,
         progress=progress,
     )

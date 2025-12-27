@@ -19,6 +19,8 @@ class NemoRunResult:
     rtfx_stdev: float | None
     wall_seconds: float | None
     device: str | None
+    decode: str | None
+    transcript: str | None
     error: str | None
 
 
@@ -39,6 +41,7 @@ def run_nemo_benchmark(
     task: str,
     model_id: str,
     model_type: str | None,
+    decode_mode: str | None,
     sample: SampleSpec,
     perf_config: PerfConfig,
     chunk_seconds: float = 40.0,
@@ -50,8 +53,14 @@ def run_nemo_benchmark(
             rtfx_stdev=None,
             wall_seconds=None,
             device=None,
+            decode=None,
+            transcript=None,
             error=f"nemo runner missing at {runner_script}",
         )
+    env = dict(os.environ)
+    env.pop("VIRTUAL_ENV", None)
+    chunk_override = env.get("STT_BENCH_NEMO_CHUNK_SECONDS")
+    chunk_seconds = float(chunk_override) if chunk_override else chunk_seconds
     cmd = [
         "uv",
         "run",
@@ -74,8 +83,8 @@ def run_nemo_benchmark(
     ]
     if model_type is not None:
         cmd.extend(["--model-type", model_type])
-    env = dict(os.environ)
-    env.pop("VIRTUAL_ENV", None)
+    if decode_mode is not None:
+        cmd.extend(["--decode-mode", decode_mode])
     proc = subprocess.run(
         cmd,
         capture_output=True,
@@ -88,7 +97,13 @@ def run_nemo_benchmark(
         if len(error) > 400:
             error = f"{error[:400]}…"
         return NemoRunResult(
-            rtfx_mean=None, rtfx_stdev=None, wall_seconds=None, device=None, error=error
+            rtfx_mean=None,
+            rtfx_stdev=None,
+            wall_seconds=None,
+            device=None,
+            decode=None,
+            transcript=None,
+            error=error,
         )
     stdout = proc.stdout.strip()
     if not stdout:
@@ -97,6 +112,8 @@ def run_nemo_benchmark(
             rtfx_stdev=None,
             wall_seconds=None,
             device=None,
+            decode=None,
+            transcript=None,
             error="nemo runner empty output",
         )
     payload_line = stdout.splitlines()[-1]
@@ -108,6 +125,8 @@ def run_nemo_benchmark(
             rtfx_stdev=None,
             wall_seconds=None,
             device=None,
+            decode=None,
+            transcript=None,
             error=f"nemo runner invalid JSON: {payload_line}",
         )
     return NemoRunResult(
@@ -115,6 +134,8 @@ def run_nemo_benchmark(
         rtfx_stdev=payload.get("rtfx_stdev"),
         wall_seconds=payload.get("wall_seconds"),
         device=payload.get("device"),
+        decode=payload.get("decode"),
+        transcript=payload.get("transcript"),
         error=None,
     )
 
@@ -127,45 +148,55 @@ def benchmark_nemo_models(
     perf_config: PerfConfig,
     model_id_fn,
     model_type_fn=None,
+    decode_mode_fn=None,
+    chunk_seconds: float | None = None,
     progress=None,
 ) -> list[ModelBenchmark]:
     results: list[ModelBenchmark] = []
     for model in models:
         model_id = model_id_fn(model)
         model_type = model_type_fn(model) if model_type_fn is not None else None
+        decode_mode = decode_mode_fn(model) if decode_mode_fn is not None else None
         run_result = run_nemo_benchmark(
             task=task,
             model_id=model_id,
             model_type=model_type,
+            decode_mode=decode_mode,
             sample=sample,
             perf_config=perf_config,
+            chunk_seconds=chunk_seconds or 40.0,
         )
         if run_result.error:
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
                     device=None,
                     notes=f"nemo failed: {run_result.error}",
+                    transcript=None,
+                    wer=None,
                 )
             )
         else:
-            device_note = f"device: {run_result.device}" if run_result.device else None
             notes = f"model: {model_id}"
-            if device_note:
-                notes = f"{notes}; {device_note}"
+            if run_result.decode:
+                notes = f"{notes}; decode: {run_result.decode}"
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=run_result.rtfx_mean,
                     rtfx_stdev=run_result.rtfx_stdev,
                     bench_seconds=run_result.wall_seconds,
                     device=run_result.device,
                     notes=notes,
+                    transcript=run_result.transcript,
+                    wer=None,
                 )
             )
         if progress is not None:

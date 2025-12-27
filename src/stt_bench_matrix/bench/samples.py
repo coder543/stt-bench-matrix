@@ -75,9 +75,10 @@ def sample_from_path(path: Path) -> SampleSpec:
     if not path.exists():
         raise FileNotFoundError(f"Sample audio not found: {path}")
     duration_seconds = audio_duration_seconds(path)
+    transcript_path = path.with_suffix(".txt")
     return SampleSpec(
         name=path.stem,
         audio_path=path,
-        transcript_path=None,
+        transcript_path=transcript_path if transcript_path.exists() else None,
         duration_seconds=duration_seconds,
     )

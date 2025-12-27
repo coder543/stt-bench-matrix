@@ -67,11 +67,14 @@ def benchmark_parakeet_models(
             ModelBenchmark(
                 model_name=model.name,
                 model_size=model.size,
+                model_variant=model.variant,
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
                 notes=f"parakeet transformers unavailable: {exc}",
+                transcript=None,
+                wer=None,
             )
             for model in models
         ]
@@ -113,6 +116,7 @@ def benchmark_parakeet_models(
                     model_id, dtype=dtype
                 ).to(device)
             asr_model.eval()
+            last_transcript: str | None = None
             sampling_rate = processor.feature_extractor.sampling_rate
             hop_length = processor.feature_extractor.hop_length
             max_len = None
@@ -143,19 +147,22 @@ def benchmark_parakeet_models(
                 )
                 inputs = inputs.to(device=device, dtype=dtype)
                 with torch.inference_mode():
-                    predicted_ids = asr_model.generate(**inputs)
+                    logits = asr_model(**inputs).logits
+                    predicted_ids = torch.argmax(logits, dim=-1)
                 return processor.batch_decode(predicted_ids, skip_special_tokens=True)
 
             def run_once() -> None:
+                nonlocal last_transcript
                 if max_samples is not None and audio.shape[0] > max_samples:
                     decoded = []
                     for start in range(0, audio.shape[0], max_samples):
                         end = start + max_samples
                         segment = audio[start:end]
                         decoded.extend(run_segment(segment))
-                    _ = " ".join(text.strip() for text in decoded if text)
+                    last_transcript = " ".join(text.strip() for text in decoded if text).strip() or None
                 else:
-                    _ = run_segment(audio)
+                    decoded = run_segment(audio)
+                    last_transcript = " ".join(text.strip() for text in decoded if text).strip() or None
 
             stats = measure_rtfx(
                 name=f"parakeet:{model.size}",
@@ -167,11 +174,14 @@ def benchmark_parakeet_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
                     device=device_note,
                     notes=f"model: {model_id}",
+                    transcript=last_transcript,
+                    wer=None,
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -182,11 +192,14 @@ def benchmark_parakeet_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
                     device=device_note,
                     notes=note,
+                    transcript=None,
+                    wer=None,
                 )
             )
         if progress is not None:

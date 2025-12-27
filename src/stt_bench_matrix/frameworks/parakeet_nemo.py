@@ -51,6 +51,8 @@ def _model_id(spec: ModelSpec) -> str:
         if spec.size == "1.1b":
             return "nvidia/parakeet-tdt_ctc-1.1b"
         return f"nvidia/parakeet-tdt_ctc-{spec.size}"
+    if spec.name == "parakeet-realtime-eou":
+        return "nvidia/parakeet_realtime_eou_120m-v1"
     return spec.size
 
 
@@ -63,7 +65,15 @@ def _model_type(spec: ModelSpec) -> str:
         return "tdt"
     if spec.name == "parakeet-tdt-ctc":
         return "tdt-ctc"
+    if spec.name == "parakeet-realtime-eou":
+        return "rnnt"
     raise ValueError(f"unknown parakeet flavor: {spec.name}")
+
+
+def _decode_mode(spec: ModelSpec) -> str | None:
+    if spec.name == "parakeet-tdt-ctc":
+        return spec.variant or "tdt"
+    return None
 
 
 def benchmark_parakeet_models(
@@ -79,5 +89,6 @@ def benchmark_parakeet_models(
         perf_config=perf_config,
         model_id_fn=_model_id,
         model_type_fn=_model_type,
+        decode_mode_fn=_decode_mode,
         progress=progress,
     )

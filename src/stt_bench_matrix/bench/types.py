@@ -10,11 +10,14 @@ from ..platforms.detect import HostInfo
 class ModelBenchmark:
     model_name: str
     model_size: str
+    model_variant: str | None
     rtfx_mean: float | None
     rtfx_stdev: float | None
     bench_seconds: float | None
     device: str | None
     notes: str | None
+    transcript: str | None
+    wer: float | None
 
 
 @dataclass(frozen=True)

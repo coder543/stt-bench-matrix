@@ -49,11 +49,14 @@ def benchmark_whisper_models(
             ModelBenchmark(
                 model_name=model.name,
                 model_size=model.size,
+                model_variant=model.variant,
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
                 notes=f"lightning-whisper-mlx unavailable: {exc}",
+                transcript=None,
+                wer=None,
             )
             for model in models
         ]
@@ -78,11 +81,14 @@ def benchmark_whisper_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
                     device="mps",
                     notes=f"model: {model_name}",
+                    transcript=None,
+                    wer=None,
                 )
             )
             if progress is not None:
@@ -92,11 +98,14 @@ def benchmark_whisper_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
                     device="mps",
                     notes=f"lightning-whisper-mlx failed: {exc}",
+                    transcript=None,
+                    wer=None,
                 )
             )
             if progress is not None:

@@ -64,12 +64,12 @@ def render_markdown(results: BenchmarkResults) -> str:
     lines.append("")
     lines.append("**Benchmarks**")
     lines.append("")
-    lines.append("| Framework | Model | RTFx (mean ± stdev) | Time (s) | Device | Notes |")
-    lines.append("| --- | --- | --- | --- | --- | --- |")
+    lines.append("| Framework | Model | RTFx (mean ± stdev) | Time (s) | Device | WER | Notes |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- |")
 
     for framework in results.frameworks:
         if not framework.models:
-            lines.append(f"| {framework.framework} | - | n/a | - |")
+            lines.append(f"| {framework.framework} | - | n/a | n/a | n/a | n/a | n/a |")
             continue
 
         for model in framework.models:
@@ -84,9 +84,14 @@ def render_markdown(results: BenchmarkResults) -> str:
                 bench_seconds = f"{model.bench_seconds:.2f}"
             device = model.device or "n/a"
             model_name = f"{model.model_name} {model.model_size}"
+            if model.model_variant:
+                model_name = f"{model_name} ({model.model_variant})"
+            wer = "n/a"
+            if model.wer is not None:
+                wer = f"{model.wer:.3f}"
             notes = model.notes or ""
             lines.append(
-                f"| {framework.framework} | {model_name} | {rtf_x} | {bench_seconds} | {device} | {notes} |"
+                f"| {framework.framework} | {model_name} | {rtf_x} | {bench_seconds} | {device} | {wer} | {notes} |"
             )
 
     return "\n".join(lines)

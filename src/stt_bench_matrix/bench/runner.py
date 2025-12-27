@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 from .types import BenchmarkResults, FrameworkBenchmark, ModelBenchmark
 from .perf import PerfConfig
 from .progress import ProgressTracker
 from .samples import SampleSpec
+from .wer import word_error_rate
 from ..frameworks.base import Framework
 from ..frameworks.registry import all_frameworks
 from ..frameworks.whisper_mlx import benchmark_whisper_models, WhisperMlxFramework
@@ -142,11 +144,14 @@ def _benchmark_framework(
             ModelBenchmark(
                 model_name=model.name,
                 model_size=model.size,
+                model_variant=model.variant,
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
                 notes="Benchmark not yet implemented",
+                transcript=None,
+                wer=None,
             )
             for model in whisper_model_list
         ]
@@ -184,7 +189,9 @@ def run_benchmarks(
             ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),
             ModelSpec(name="parakeet-rnnt", size="0.6b", family="parakeet"),
             ModelSpec(name="parakeet-tdt", size="0.6b-v3", family="parakeet"),
-            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet"),
+            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="tdt"),
+            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="ctc"),
+            ModelSpec(name="parakeet-realtime-eou", size="120m-v1", family="parakeet"),
         ]
         perf_config = PerfConfig(warmups=0, runs=2)
     elif quick:
@@ -194,7 +201,9 @@ def run_benchmarks(
             ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),
             ModelSpec(name="parakeet-rnnt", size="0.6b", family="parakeet"),
             ModelSpec(name="parakeet-tdt", size="0.6b-v3", family="parakeet"),
-            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet"),
+            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="tdt"),
+            ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="ctc"),
+            ModelSpec(name="parakeet-realtime-eou", size="120m-v1", family="parakeet"),
         ]
         perf_config = PerfConfig(warmups=0, runs=2)
     else:
@@ -236,6 +245,18 @@ def run_benchmarks(
         )
         if result is not None:
             framework_results.append(result)
+    if sample.transcript_path and sample.transcript_path.exists():
+        reference_text = sample.transcript_path.read_text(encoding="utf-8")
+        updated_frameworks: list[FrameworkBenchmark] = []
+        for framework in framework_results:
+            updated_models: list[ModelBenchmark] = []
+            for model in framework.models:
+                wer = None
+                if model.transcript:
+                    wer = word_error_rate(reference_text, model.transcript)
+                updated_models.append(replace(model, wer=wer))
+            updated_frameworks.append(replace(framework, models=updated_models))
+        framework_results = updated_frameworks
     total_seconds = time.perf_counter() - start
     return BenchmarkResults(
         host=host,

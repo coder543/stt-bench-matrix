@@ -7,6 +7,7 @@ import shutil
 import statistics
 import subprocess
 import time
+import tempfile
 from typing import Callable
 
 from huggingface_hub import hf_hub_download
@@ -69,11 +70,14 @@ def benchmark_whisper_models(
             ModelBenchmark(
                 model_name=model.name,
                 model_size=model.size,
+                model_variant=model.variant,
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
                 notes="whisper-cli not found in PATH",
+                transcript=None,
+                wer=None,
             )
             for model in models
         ]
@@ -90,6 +94,7 @@ def benchmark_whisper_models(
             device_note = "cpu"
             note_suffix = ""
             timings_missing = False
+            last_transcript: str | None = None
             force_cpu = os.environ.get("STT_BENCH_WHISPER_CPP_FORCE_CPU", "") in {
                 "1",
                 "true",
@@ -105,8 +110,8 @@ def benchmark_whisper_models(
                     text=True,
                 )
 
-            def run_once() -> float:
-                nonlocal device_note, note_suffix, timings_missing
+            def run_once(out_base: str) -> float:
+                nonlocal device_note, note_suffix, timings_missing, last_transcript
                 base_cmd = [
                     whisper_cli,
                     "-m",
@@ -115,6 +120,9 @@ def benchmark_whisper_models(
                     str(sample.audio_path),
                     "-l",
                     language,
+                    "-of",
+                    out_base,
+                    "-otxt",
                 ]
                 cmd = base_cmd + (["-ng"] if force_cpu else [])
                 wall_start = time.perf_counter()
@@ -148,6 +156,14 @@ def benchmark_whisper_models(
                 gpu_match = gpu_re.search(output)
                 if gpu_match:
                     device_note = "cuda" if gpu_match.group(1) == "1" else "cpu"
+                txt_path = f"{out_base}.txt"
+                if os.path.exists(txt_path):
+                    try:
+                        last_transcript = (
+                            open(txt_path, encoding="utf-8").read().strip() or None
+                        )
+                    except Exception:
+                        last_transcript = last_transcript
                 match = timing_re.search(output)
                 if match:
                     return float(match.group(1)) / 1000.0
@@ -157,10 +173,12 @@ def benchmark_whisper_models(
                 return wall_elapsed
 
             elapsed_values: list[float] = []
-            for _ in range(perf_config.warmups):
-                _ = run_once()
-            for _ in range(perf_config.runs):
-                elapsed_values.append(run_once())
+            with tempfile.TemporaryDirectory() as temp_dir:
+                out_base = os.path.join(temp_dir, "whisper_output")
+                for _ in range(perf_config.warmups):
+                    _ = run_once(out_base)
+                for _ in range(perf_config.runs):
+                    elapsed_values.append(run_once(out_base))
 
             rtfx_values = [sample.duration_seconds / v for v in elapsed_values]
             rtfx_mean = statistics.fmean(rtfx_values)
@@ -172,11 +190,14 @@ def benchmark_whisper_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=rtfx_mean,
                     rtfx_stdev=rtfx_stdev,
                     bench_seconds=wall_seconds,
                     device=device_note,
                     notes=f"model: {filename}{note_suffix}",
+                    transcript=last_transcript,
+                    wer=None,
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -184,11 +205,14 @@ def benchmark_whisper_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
                     device="cpu",
                     notes=f"whisper.cpp failed: {exc}",
+                    transcript=None,
+                    wer=None,
                 )
             )
         if progress is not None:

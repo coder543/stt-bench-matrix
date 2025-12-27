@@ -47,11 +47,14 @@ def benchmark_whisper_models(
             ModelBenchmark(
                 model_name=model.name,
                 model_size=model.size,
+                model_variant=model.variant,
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
                 notes=f"faster-whisper unavailable: {exc}",
+                transcript=None,
+                wer=None,
             )
             for model in models
         ]
@@ -89,15 +92,21 @@ def benchmark_whisper_models(
                     compute_type="float32",
                 )
                 device_note = "device: cpu (cuda failed)"
+            last_transcript: str | None = None
 
             def run_once() -> None:
+                nonlocal last_transcript
                 segments, _ = whisper.transcribe(
                     str(sample.audio_path),
                     language=language,
                     task="transcribe",
                 )
-                for _ in segments:
-                    pass
+                texts: list[str] = []
+                for segment in segments:
+                    text = getattr(segment, "text", None)
+                    if text:
+                        texts.append(text.strip())
+                last_transcript = " ".join(texts).strip() or None
 
             stats = measure_rtfx(
                 name=f"faster-whisper:{model.size}",
@@ -109,11 +118,14 @@ def benchmark_whisper_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
                     device=device_note,
                     notes=f"model: {model_id}",
+                    transcript=last_transcript,
+                    wer=None,
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -124,11 +136,14 @@ def benchmark_whisper_models(
                 ModelBenchmark(
                     model_name=model.name,
                     model_size=model.size,
+                    model_variant=model.variant,
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
                     device=device_note,
                     notes=note,
+                    transcript=None,
+                    wer=None,
                 )
             )
         if progress is not None:

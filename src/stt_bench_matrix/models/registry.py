@@ -8,6 +8,7 @@ class ModelSpec:
     name: str
     size: str
     family: str
+    variant: str | None = None
 
 
 def whisper_models() -> list[ModelSpec]:
@@ -36,6 +37,7 @@ def parakeet_models() -> list[ModelSpec]:
         ModelSpec(name="parakeet-rnnt", size="1.1b", family="parakeet"),
         ModelSpec(name="parakeet-tdt", size="0.6b-v3", family="parakeet"),
         ModelSpec(name="parakeet-tdt", size="1.1b", family="parakeet"),
-        ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet"),
-        ModelSpec(name="parakeet-tdt-ctc", size="1.1b", family="parakeet"),
+        ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="tdt"),
+        ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="ctc"),
+        ModelSpec(name="parakeet-realtime-eou", size="120m-v1", family="parakeet"),
     ]
