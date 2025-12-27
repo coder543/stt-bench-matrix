@@ -46,6 +46,7 @@ def benchmark_whisper_models(
     models: list[ModelSpec],
     use_cache: bool,
     perf_config: PerfConfig,
+    language: str,
     progress: Callable[[str], None] | None = None,
 ) -> list[ModelBenchmark]:
     try:
@@ -58,6 +59,7 @@ def benchmark_whisper_models(
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
+                device=None,
                 notes=f"mlx-whisper unavailable: {exc}",
             )
             for model in models
@@ -101,6 +103,7 @@ def benchmark_whisper_models(
                             rtfx_mean=stats.rtfx_mean,
                             rtfx_stdev=stats.rtfx_stdev,
                             bench_seconds=stats.wall_seconds,
+                            device="mps",
                             notes=f"repo: {repo}",
                         )
                     )
@@ -136,6 +139,7 @@ def benchmark_whisper_models(
                             rtfx_mean=stats.rtfx_mean,
                             rtfx_stdev=stats.rtfx_stdev,
                             bench_seconds=stats.wall_seconds,
+                            device="mps",
                             notes=f"repo: {repo}",
                         )
                     )
@@ -153,6 +157,7 @@ def benchmark_whisper_models(
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
+                    device="mps",
                     notes=f"mlx-whisper failed: {last_error}",
                 )
             )

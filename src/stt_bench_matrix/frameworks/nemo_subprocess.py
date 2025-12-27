@@ -148,6 +148,7 @@ def benchmark_nemo_models(
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
+                    device=None,
                     notes=f"nemo failed: {run_result.error}",
                 )
             )
@@ -163,6 +164,7 @@ def benchmark_nemo_models(
                     rtfx_mean=run_result.rtfx_mean,
                     rtfx_stdev=run_result.rtfx_stdev,
                     bench_seconds=run_result.wall_seconds,
+                    device=run_result.device,
                     notes=notes,
                 )
             )

@@ -70,6 +70,7 @@ def benchmark_parakeet_models(
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
+                device=None,
                 notes=f"parakeet transformers unavailable: {exc}",
             )
             for model in models
@@ -80,17 +81,17 @@ def benchmark_parakeet_models(
     prefer_mps = torch.backends.mps.is_available()
     device = torch.device("cpu")
     dtype = torch.float32
-    device_note = "device: cpu"
+    device_note = "cpu"
     if prefer_cuda:
         device = torch.device("cuda:0")
         dtype = torch.float16
-        device_note = "device: cuda"
+        device_note = "cuda"
     elif prefer_mps:
         device = torch.device("mps")
         dtype = torch.float32
-        device_note = "device: mps"
+        device_note = "mps"
     elif cuda_err and torch.cuda.is_available():
-        device_note = f"device: cpu (cuda unavailable: {cuda_err})"
+        device_note = "cpu"
 
     audio = _load_wav_16k_mono(str(sample.audio_path))
 
@@ -107,7 +108,7 @@ def benchmark_parakeet_models(
             except Exception:  # noqa: BLE001
                 device = torch.device("cpu")
                 dtype = torch.float32
-                device_note = "device: cpu (cuda failed)"
+                device_note = "cpu"
                 asr_model = AutoModelForCTC.from_pretrained(
                     model_id, dtype=dtype
                 ).to(device)
@@ -169,10 +170,14 @@ def benchmark_parakeet_models(
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
-                    notes=f"model: {model_id}; {device_note}",
+                    device=device_note,
+                    notes=f"model: {model_id}",
                 )
             )
         except Exception as exc:  # noqa: BLE001
+            note = f"parakeet failed: {type(exc).__name__}: {exc}"
+            if cuda_err and torch.cuda.is_available():
+                note = f"{note}; cuda unavailable: {cuda_err}"
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -180,7 +185,8 @@ def benchmark_parakeet_models(
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
-                    notes=f"parakeet failed: {type(exc).__name__}: {exc}; {device_note}",
+                    device=device_note,
+                    notes=note,
                 )
             )
         if progress is not None:

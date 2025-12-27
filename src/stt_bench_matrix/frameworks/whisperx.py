@@ -36,6 +36,7 @@ def benchmark_whisper_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
+    language: str,
     progress: Callable[[str], None] | None = None,
 ) -> list[ModelBenchmark]:
     try:
@@ -78,12 +79,9 @@ def benchmark_whisper_models(
             import omegaconf
             from torch.serialization import add_safe_globals
 
-            import typing
-
             add_safe_globals([omegaconf.listconfig.ListConfig])
             add_safe_globals([omegaconf.dictconfig.DictConfig])
             add_safe_globals([omegaconf.base.ContainerMetadata])
-            add_safe_globals([typing.Any])
         except Exception:
             pass
         import whisperx
@@ -95,6 +93,7 @@ def benchmark_whisper_models(
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
+                device=None,
                 notes=f"whisperx unavailable: {exc}",
             )
             for model in models
@@ -103,17 +102,17 @@ def benchmark_whisper_models(
     cuda_ok, cuda_err = cuda_is_usable()
     device = "cpu"
     compute_type = "float32"
-    device_note = "device: cpu"
+    device_note = "cpu"
     if cuda_ok:
         device = "cuda"
         compute_type = "float16"
-        device_note = "device: cuda"
+        device_note = "cuda"
     elif torch.backends.mps.is_available():
         device = "cpu"
         compute_type = "float32"
-        device_note = "device: cpu (mps unsupported)"
+        device_note = "cpu"
     elif cuda_err and torch.cuda.is_available():
-        device_note = f"device: cpu (cuda unavailable: {cuda_err})"
+        device_note = "cpu"
 
     results: list[ModelBenchmark] = []
 
@@ -125,18 +124,20 @@ def benchmark_whisper_models(
                     model_id,
                     device=device,
                     compute_type=compute_type,
+                    language=language,
                 )
             except Exception:  # noqa: BLE001
                 asr = whisperx.load_model(
                     model_id,
                     device="cpu",
                     compute_type="float32",
+                    language=language,
                 )
-                device_note = "device: cpu (cuda failed)"
+                device_note = "cpu"
 
             def run_once() -> None:
                 audio = whisperx.load_audio(str(sample.audio_path))
-                result = asr.transcribe(audio, language="en")
+                result = asr.transcribe(audio, language=language)
                 if "segments" in result:
                     for _ in result["segments"]:
                         pass
@@ -154,10 +155,14 @@ def benchmark_whisper_models(
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
-                    notes=f"model: {model_id}; {device_note}",
+                    device=device_note,
+                    notes=f"model: {model_id}",
                 )
             )
         except Exception as exc:  # noqa: BLE001
+            note = f"whisperx failed: {exc}"
+            if cuda_err and torch.cuda.is_available():
+                note = f"{note}; cuda unavailable: {cuda_err}"
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -165,7 +170,8 @@ def benchmark_whisper_models(
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
-                    notes=f"whisperx failed: {exc}; {device_note}",
+                    device=device_note,
+                    notes=note,
                 )
             )
         if progress is not None:

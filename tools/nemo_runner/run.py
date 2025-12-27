@@ -9,6 +9,7 @@ import statistics
 import tempfile
 import time
 import wave
+from contextlib import nullcontext
 
 
 def _wav_duration_seconds(path: str) -> float:
@@ -70,6 +71,43 @@ def _load_model(task: str, model_id: str, model_type: str | None):
     raise ValueError(f"Unknown task: {task}")
 
 
+def _set_attr_path(obj, path: list[str], value) -> bool:
+    target = obj
+    for key in path[:-1]:
+        if not hasattr(target, key):
+            return False
+        target = getattr(target, key)
+    last = path[-1]
+    if not hasattr(target, last):
+        return False
+    setattr(target, last, value)
+    return True
+
+
+def _configure_decoding(model, task: str, model_type: str | None) -> None:
+    if not hasattr(model, "change_decoding_strategy"):
+        return
+    cfg = getattr(model, "cfg", None)
+    decoding = getattr(cfg, "decoding", None) if cfg is not None else None
+    if decoding is None:
+        return
+    if task == "canary" or model_type in {"rnnt", "tdt", "tdt-ctc"}:
+        # Prefer fast greedy decoding when available.
+        _set_attr_path(decoding, ["strategy"], "greedy_batch")
+        _set_attr_path(decoding, ["rnnt_decoding", "strategy"], "greedy_batch")
+        # Force beam size to 1 when possible.
+        for path in (
+            ["beam", "beam_size"],
+            ["rnnt_decoding", "beam_size"],
+            ["rnnt_decoding", "beam", "beam_size"],
+        ):
+            _set_attr_path(decoding, path, 1)
+    try:
+        model.change_decoding_strategy(decoding)
+    except Exception:
+        return
+
+
 def _configure_logging() -> None:
     logging.basicConfig(level=logging.ERROR)
     os.environ.setdefault("NEMO_LOG_LEVEL", "ERROR")
@@ -126,30 +164,57 @@ def main() -> int:
     model = _load_model(args.task, args.model_id, args.model_type)
     model.eval()
     model = model.to(device)
+    if os.environ.get("STT_BENCH_NEMO_ALLOW_TF32", "").lower() in {"1", "true", "yes", "y"}:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    matmul_precision = os.environ.get("STT_BENCH_NEMO_MATMUL_PRECISION")
+    if matmul_precision:
+        try:
+            torch.set_float32_matmul_precision(matmul_precision)
+        except Exception:
+            pass
+    if os.environ.get("STT_BENCH_NEMO_CUDNN_BENCHMARK", "").lower() in {"1", "true", "yes", "y"}:
+        torch.backends.cudnn.benchmark = True
+
+    autocast_env = os.environ.get("STT_BENCH_NEMO_AUTOCAST", "auto").lower()
+    if autocast_env in {"0", "false", "no", "n"}:
+        use_autocast = False
+    elif autocast_env in {"1", "true", "yes", "y"}:
+        use_autocast = cuda_ok
+    else:
+        # Auto: enable for CTC/CTC-like models, disable for RNNT/TDT unless overridden.
+        use_autocast = cuda_ok and args.model_type in {"ctc", "tdt-ctc"}
+    _configure_decoding(model, args.task, args.model_type)
     if args.task == "canary":
-        decode_cfg = model.cfg.decoding
-        decode_cfg.beam.beam_size = 1
-        model.change_decoding_strategy(decode_cfg)
+        pass
 
     sample_seconds = _wav_duration_seconds(args.audio_path)
 
     def run_once() -> None:
-        if sample_seconds <= args.chunk_seconds:
-            _ = model.transcribe(
-                audio=[args.audio_path],
-                batch_size=1,
-                num_workers=0,
-                verbose=False,
-            )
-            return
-        with tempfile.TemporaryDirectory() as temp_dir:
-            chunk_paths = _write_wav_chunks(args.audio_path, args.chunk_seconds, temp_dir)
-            _ = model.transcribe(
-                audio=chunk_paths,
-                batch_size=1,
-                num_workers=0,
-                verbose=False,
-            )
+        autocast_dtype = os.environ.get("STT_BENCH_NEMO_AUTOCAST_DTYPE", "fp16").lower()
+        autocast_dtype_t = torch.float16 if autocast_dtype in {"fp16", "float16"} else torch.bfloat16
+        autocast_cm = (
+            torch.autocast(device_type="cuda", dtype=autocast_dtype_t)
+            if use_autocast
+            else nullcontext()
+        )
+        with torch.inference_mode(), autocast_cm:
+            if sample_seconds <= args.chunk_seconds:
+                _ = model.transcribe(
+                    audio=[args.audio_path],
+                    batch_size=1,
+                    num_workers=0,
+                    verbose=False,
+                )
+                return
+            with tempfile.TemporaryDirectory() as temp_dir:
+                chunk_paths = _write_wav_chunks(args.audio_path, args.chunk_seconds, temp_dir)
+                _ = model.transcribe(
+                    audio=chunk_paths,
+                    batch_size=1,
+                    num_workers=0,
+                    verbose=False,
+                )
 
     wall_start = time.perf_counter()
     for _ in range(args.warmups):

@@ -5,7 +5,7 @@ import time
 from .types import BenchmarkResults, FrameworkBenchmark, ModelBenchmark
 from .perf import PerfConfig
 from .progress import ProgressTracker
-from .samples import default_sample
+from .samples import SampleSpec
 from ..frameworks.base import Framework
 from ..frameworks.registry import all_frameworks
 from ..frameworks.whisper_mlx import benchmark_whisper_models, WhisperMlxFramework
@@ -54,12 +54,12 @@ def _benchmark_framework(
     parakeet_model_list: list[ModelSpec],
     use_cache: bool,
     perf_config: PerfConfig,
+    sample: SampleSpec,
+    language: str,
     progress: ProgressTracker | None,
 ) -> FrameworkBenchmark | None:
     if not framework.is_supported(host):
         return None
-
-    sample = default_sample()
 
     progress_cb = progress.step if progress is not None else None
 
@@ -69,6 +69,7 @@ def _benchmark_framework(
             whisper_model_list,
             use_cache=use_cache,
             perf_config=perf_config,
+            language=language,
             progress=progress_cb,
         )
     elif isinstance(framework, LightningWhisperMlxFramework):
@@ -76,6 +77,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            language=language,
             progress=progress_cb,
         )
     elif isinstance(framework, WhisperCppFramework):
@@ -83,6 +85,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            language=language,
             progress=progress_cb,
         )
     elif isinstance(framework, TransformersWhisperFramework):
@@ -90,6 +93,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            language=language,
             progress=progress_cb,
         )
     elif isinstance(framework, FasterWhisperFramework):
@@ -97,6 +101,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            language=language,
             progress=progress_cb,
         )
     elif isinstance(framework, WhisperXFramework):
@@ -104,6 +109,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            language=language,
             progress=progress_cb,
         )
     elif isinstance(framework, ParakeetTransformersFramework):
@@ -139,6 +145,7 @@ def _benchmark_framework(
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
+                device=None,
                 notes="Benchmark not yet implemented",
             )
             for model in whisper_model_list
@@ -155,6 +162,8 @@ def _benchmark_framework(
 def run_benchmarks(
     host: HostInfo,
     use_cache: bool,
+    sample: SampleSpec,
+    language: str,
     quick: bool = False,
     quick_2: bool = False,
     parakeet_only: bool = False,
@@ -211,7 +220,7 @@ def run_benchmarks(
             total_steps += len(canary_model_list)
     progress = ProgressTracker(total_steps=total_steps)
     progress.start()
-    frameworks = []
+    framework_results: list[FrameworkBenchmark] = []
     for framework in frameworks_to_run:
         result = _benchmark_framework(
             framework,
@@ -221,9 +230,18 @@ def run_benchmarks(
             parakeet_model_list,
             use_cache=use_cache,
             perf_config=perf_config,
+            sample=sample,
+            language=language,
             progress=progress,
         )
         if result is not None:
-            frameworks.append(result)
+            framework_results.append(result)
     total_seconds = time.perf_counter() - start
-    return BenchmarkResults(host=host, frameworks=frameworks, total_seconds=total_seconds)
+    return BenchmarkResults(
+        host=host,
+        frameworks=framework_results,
+        total_seconds=total_seconds,
+        sample_name=sample.name,
+        sample_path=str(sample.audio_path),
+        language=language,
+    )

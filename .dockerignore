@@ -1,0 +1,12 @@
+.gitignore
+.venv
+**/.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.mypy_cache
+output
+benchmarks
+mlx_models
+tools/nemo_runner/.venv

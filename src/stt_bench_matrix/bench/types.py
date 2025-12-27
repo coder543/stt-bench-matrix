@@ -13,6 +13,7 @@ class ModelBenchmark:
     rtfx_mean: float | None
     rtfx_stdev: float | None
     bench_seconds: float | None
+    device: str | None
     notes: str | None
 
 
@@ -29,3 +30,6 @@ class BenchmarkResults:
     host: HostInfo
     frameworks: Sequence[FrameworkBenchmark]
     total_seconds: float
+    sample_name: str
+    sample_path: str
+    language: str

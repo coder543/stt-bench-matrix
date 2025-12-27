@@ -36,6 +36,7 @@ def benchmark_whisper_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
+    language: str,
     progress: Callable[[str], None] | None = None,
 ) -> list[ModelBenchmark]:
     try:
@@ -49,6 +50,7 @@ def benchmark_whisper_models(
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
+                device=None,
                 notes=f"faster-whisper unavailable: {exc}",
             )
             for model in models
@@ -57,17 +59,17 @@ def benchmark_whisper_models(
     cuda_ok, cuda_err = cuda_is_usable()
     device = "cpu"
     compute_type = "float32"
-    device_note = "device: cpu"
+    device_note = "cpu"
     if cuda_ok:
         device = "cuda"
         compute_type = "float16"
-        device_note = "device: cuda"
+        device_note = "cuda"
     elif torch.backends.mps.is_available():
         device = "cpu"
         compute_type = "float32"
-        device_note = "device: cpu (mps unsupported)"
+        device_note = "cpu"
     elif cuda_err and torch.cuda.is_available():
-        device_note = f"device: cpu (cuda unavailable: {cuda_err})"
+        device_note = "cpu"
 
     results: list[ModelBenchmark] = []
 
@@ -91,7 +93,7 @@ def benchmark_whisper_models(
             def run_once() -> None:
                 segments, _ = whisper.transcribe(
                     str(sample.audio_path),
-                    language="en",
+                    language=language,
                     task="transcribe",
                 )
                 for _ in segments:
@@ -110,10 +112,14 @@ def benchmark_whisper_models(
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
-                    notes=f"model: {model_id}; {device_note}",
+                    device=device_note,
+                    notes=f"model: {model_id}",
                 )
             )
         except Exception as exc:  # noqa: BLE001
+            note = f"faster-whisper failed: {exc}"
+            if cuda_err and torch.cuda.is_available():
+                note = f"{note}; cuda unavailable: {cuda_err}"
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -121,7 +127,8 @@ def benchmark_whisper_models(
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,
-                    notes=f"faster-whisper failed: {exc}; {device_note}",
+                    device=device_note,
+                    notes=note,
                 )
             )
         if progress is not None:

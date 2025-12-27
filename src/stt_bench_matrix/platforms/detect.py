@@ -18,6 +18,8 @@ class HostInfo:
     accelerator: str
     accelerator_memory_bytes: int | None
     cuda_available: bool
+    cudnn_available: bool
+    mps_available: bool
     cuda_error: str | None
     is_macos: bool
     is_linux: bool
@@ -34,7 +36,14 @@ def detect_host() -> HostInfo:
     is_apple_silicon = is_macos and machine in {"arm64", "aarch64"}
     cpu = _cpu_name(os_name)
     ram_bytes = _ram_bytes(os_name)
-    accelerator, accelerator_memory_bytes, cuda_available, cuda_error = _accelerator_info()
+    (
+        accelerator,
+        accelerator_memory_bytes,
+        cuda_available,
+        cudnn_available,
+        mps_available,
+        cuda_error,
+    ) = _accelerator_info()
 
     return HostInfo(
         os=os_name,
@@ -45,6 +54,8 @@ def detect_host() -> HostInfo:
         accelerator=accelerator,
         accelerator_memory_bytes=accelerator_memory_bytes,
         cuda_available=cuda_available,
+        cudnn_available=cudnn_available,
+        mps_available=mps_available,
         cuda_error=cuda_error,
         is_macos=is_macos,
         is_linux=is_linux,
@@ -92,18 +103,18 @@ def _ram_bytes(os_name: str) -> int | None:
     return None
 
 
-def _accelerator_info() -> Tuple[str, int | None, bool, str | None]:
+def _accelerator_info() -> Tuple[str, int | None, bool, bool, bool, str | None]:
     try:
         import torch
     except Exception:
-        return ("CPU", None, False, "torch not available")
+        return ("CPU", None, False, False, False, "torch not available")
     cuda_ok, cuda_err = cuda_is_usable()
     if cuda_ok:
         name = torch.cuda.get_device_name(0)
         props = torch.cuda.get_device_properties(0)
-        return (name, int(props.total_memory), True, None)
+        return (name, int(props.total_memory), True, True, False, None)
     if torch.cuda.is_available() and cuda_err:
-        return ("CPU", None, True, cuda_err)
+        return ("CPU", None, True, False, False, cuda_err)
     if torch.backends.mps.is_available():
-        return ("Apple GPU (MPS)", None, False, None)
-    return ("CPU", None, False, None)
+        return ("Apple GPU (MPS)", None, False, False, True, None)
+    return ("CPU", None, False, False, False, None)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .bench.runner import run_benchmarks
 from .platforms.detect import detect_host
+from .bench.samples import default_sample, sample_from_path
 from .reporting.markdown import render_markdown
 from .frameworks.whisper_cpp import has_whisper_cli
 from .frameworks.registry import all_frameworks
@@ -37,6 +38,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--parakeet",
         action="store_true",
         help="Run only Parakeet benchmarks (respects --quick/--quick-2)",
+    )
+    parser.add_argument(
+        "--lang",
+        default="en",
+        help="Language code to use when supported (default: en)",
+    )
+    parser.add_argument(
+        "--sample",
+        help="Path to a 16kHz mono WAV sample to benchmark",
     )
     parser.add_argument(
         "--json",
@@ -75,20 +85,27 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(warning)
 
+    sample = default_sample()
+    if args.sample:
+        sample = sample_from_path(Path(args.sample))
     results = run_benchmarks(
         host=host,
         use_cache=not args.no_cache,
+        sample=sample,
+        language=args.lang,
         quick=args.quick,
         quick_2=args.quick_2,
         parakeet_only=args.parakeet,
         frameworks=selected_frameworks,
     )
 
+    import json
+    markdown = render_markdown(results)
+    json_payload = json.dumps(asdict(results), indent=2)
     if args.json:
-        import json
-
-        print(json.dumps(asdict(results), indent=2))
-        return 0
+        print(json_payload)
+    else:
+        print(markdown)
 
     if warn_missing_whisper_cli and not has_whisper_cli():
         warning = (
@@ -96,11 +113,11 @@ def main(argv: list[str] | None = None) -> int:
             "skipping whisper.cpp benchmarks"
         )
         print(warning)
-    markdown = render_markdown(results)
-    print(markdown)
     output_dir = Path("output")
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_path = output_dir / f"{timestamp}.md"
     output_path.write_text(markdown, encoding="utf-8")
+    output_json_path = output_dir / f"{timestamp}.json"
+    output_json_path.write_text(json_payload, encoding="utf-8")
     return 0

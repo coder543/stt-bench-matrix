@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 
 from ..bench.types import BenchmarkResults
@@ -13,6 +14,15 @@ def _format_bytes(value: int | None) -> str | None:
 
 
 def _git_revision() -> str | None:
+    env_rev = os.environ.get("STT_BENCH_GIT_REV")
+    if env_rev and env_rev.lower() != "unknown":
+        return env_rev
+    env_sha = os.environ.get("STT_BENCH_GIT_SHA")
+    if env_sha and env_sha.lower() != "unknown":
+        dirty = os.environ.get("STT_BENCH_GIT_DIRTY", "").lower()
+        if dirty in {"1", "true", "yes", "y"}:
+            return f"{env_sha} (dirty)"
+        return env_sha
     try:
         rev = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"], text=True
@@ -39,20 +49,23 @@ def render_markdown(results: BenchmarkResults) -> str:
         system_lines.append(f"- CPU: {results.host.cpu}")
     if ram_mem:
         system_lines.append(f"- System RAM: {ram_mem}")
+    system_lines.append(f"- CUDA available: {str(results.host.cuda_available).lower()}")
+    system_lines.append(f"- cuDNN available: {str(results.host.cudnn_available).lower()}")
+    system_lines.append(f"- MPS available: {str(results.host.mps_available).lower()}")
     if results.host.cuda_error:
-        system_lines.append(f"- CUDA: {results.host.cuda_error}")
-    elif results.host.cuda_available:
-        system_lines.append("- CUDA: available")
+        system_lines.append(f"- CUDA error: {results.host.cuda_error}")
     git_rev = _git_revision()
     if git_rev:
         system_lines.append(f"- Git: {git_rev}")
     system_lines.append(f"- Total time: {results.total_seconds:.2f}s")
+    system_lines.append(f"- Sample: {results.sample_name} ({results.sample_path})")
+    system_lines.append(f"- Language: {results.language}")
     lines.append("\n".join(system_lines))
     lines.append("")
     lines.append("**Benchmarks**")
     lines.append("")
-    lines.append("| Framework | Model | RTFx (mean ± stdev) | Time (s) | Notes |")
-    lines.append("| --- | --- | --- | --- | --- |")
+    lines.append("| Framework | Model | RTFx (mean ± stdev) | Time (s) | Device | Notes |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
 
     for framework in results.frameworks:
         if not framework.models:
@@ -69,10 +82,11 @@ def render_markdown(results: BenchmarkResults) -> str:
             bench_seconds = "n/a"
             if model.bench_seconds is not None:
                 bench_seconds = f"{model.bench_seconds:.2f}"
+            device = model.device or "n/a"
             model_name = f"{model.model_name} {model.model_size}"
             notes = model.notes or ""
             lines.append(
-                f"| {framework.framework} | {model_name} | {rtf_x} | {bench_seconds} | {notes} |"
+                f"| {framework.framework} | {model_name} | {rtf_x} | {bench_seconds} | {device} | {notes} |"
             )
 
     return "\n".join(lines)

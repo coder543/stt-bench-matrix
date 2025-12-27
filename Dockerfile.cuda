@@ -1,0 +1,76 @@
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04 AS whisper-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    build-essential \
+    cmake \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build whisper.cpp CLI with CUDA support.
+ENV CUDA_STUBS="/usr/local/cuda/lib64/stubs:/usr/local/cuda/targets/x86_64-linux/lib/stubs"
+ENV LD_LIBRARY_PATH="${CUDA_STUBS}:${LD_LIBRARY_PATH}"
+ENV LIBRARY_PATH="${CUDA_STUBS}:${LIBRARY_PATH}"
+ENV CMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,/usr/local/cuda/lib64/stubs -Wl,-rpath-link,/usr/local/cuda/targets/x86_64-linux/lib/stubs"
+RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1 \
+    && ln -sf /usr/local/cuda/targets/x86_64-linux/lib/stubs/libcuda.so /usr/local/cuda/targets/x86_64-linux/lib/stubs/libcuda.so.1
+RUN git clone --depth 1 https://github.com/ggerganov/whisper.cpp /opt/whisper.cpp
+RUN cmake -S /opt/whisper.cpp -B /opt/whisper.cpp/build -DGGML_CUDA=ON
+RUN cmake --build /opt/whisper.cpp/build -j --target whisper-cli
+
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV STT_BENCH_GIT_REV=unknown
+ENV STT_BENCH_GIT_SHA=unknown
+ENV STT_BENCH_GIT_DIRTY=unknown
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    ca-certificates \
+    git \
+    build-essential \
+    cmake \
+    pkg-config \
+    ffmpeg \
+    libsndfile1 \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    python3.11-distutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip
+RUN python3.11 -m pip install --no-cache-dir uv
+RUN git config --global --add safe.directory /workspace
+
+COPY --from=whisper-builder /opt/whisper.cpp/build/bin/whisper-cli /opt/whisper.cpp/build/bin/whisper-cli
+COPY --from=whisper-builder /opt/whisper.cpp/build/src /opt/whisper.cpp/build/src
+COPY --from=whisper-builder /opt/whisper.cpp/build/ggml/src /opt/whisper.cpp/build/ggml/src
+
+ENV PATH="/opt/whisper.cpp/build/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/workspace/.venv/lib/python3.11/site-packages/nvidia/cudnn/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cublas/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusparse/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusolver/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cufft/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/nccl/lib:/opt/whisper.cpp/build/src:/opt/whisper.cpp/build/ggml/src:/opt/whisper.cpp/build/ggml/src/ggml-cuda:${LD_LIBRARY_PATH}"
+
+WORKDIR /workspace
+COPY . .
+
+RUN if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+      sha="$(git rev-parse --short HEAD)"; \
+      dirty="0"; \
+      if [ -n "$(git status --porcelain)" ]; then dirty="1"; fi; \
+      printf "export STT_BENCH_GIT_REV=%s\\n" "$sha" > /etc/stt-bench-git.env; \
+      printf "export STT_BENCH_GIT_SHA=%s\\n" "$sha" >> /etc/stt-bench-git.env; \
+      printf "export STT_BENCH_GIT_DIRTY=%s\\n" "$dirty" >> /etc/stt-bench-git.env; \
+    fi
+
+RUN uv sync
+
+COPY docker/entrypoint.sh /usr/local/bin/stt-bench-entrypoint
+RUN chmod +x /usr/local/bin/stt-bench-entrypoint
+
+ENTRYPOINT ["/usr/local/bin/stt-bench-entrypoint"]
