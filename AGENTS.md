@@ -29,7 +29,7 @@
 ## Testing Guidelines
 - No unit test suite yet. Validate by running `uv run ty check` and a targeted CLI run.
 - Sample data: `samples/jfk_rice_16k.wav` with transcript `samples/jfk_rice_16k.txt`.
-- For faster iteration, use the committed 20s sample (skips the first 17s of applause) with `--sample samples/jfk_rice_20s.wav`.
+- For faster iteration, use the committed 20s sample (skips the first 17s of applause) with `--sample samples/jfk_rice_16k_20s.wav`.
 
 ## Commit & Pull Request Guidelines
 - No formal commit convention enforced. Use clear, imperative summaries (e.g., “Add moonshine runner”).
