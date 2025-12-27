@@ -20,6 +20,9 @@ dependencies = [
   "librosa",
   "faster-whisper",
   "whisperx",
+  "peft",
+  "soundfile",
+  "torchaudio",
 ]
 
 [project.scripts]

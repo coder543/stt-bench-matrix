@@ -20,6 +20,8 @@ class CanaryNemoFramework:
         supports_whisper=False,
         supports_parakeet=False,
         supports_canary=True,
+        supports_moonshine=False,
+        supports_granite=False,
     )
 
     def is_supported(self, host: HostInfo) -> bool:

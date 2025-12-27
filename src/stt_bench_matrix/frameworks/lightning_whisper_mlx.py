@@ -19,6 +19,8 @@ class LightningWhisperMlxFramework:
         supports_whisper=True,
         supports_parakeet=False,
         supports_canary=False,
+        supports_moonshine=False,
+        supports_granite=False,
     )
 
     def is_supported(self, host: HostInfo) -> bool:

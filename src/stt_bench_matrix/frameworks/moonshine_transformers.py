@@ -16,14 +16,14 @@ from .base import FrameworkInfo
 
 
 @dataclass(frozen=True)
-class TransformersWhisperFramework:
+class MoonshineTransformersFramework:
     info: FrameworkInfo = FrameworkInfo(
-        name="transformers",
-        description="Hugging Face Transformers Whisper",
-        supports_whisper=True,
+        name="moonshine-transformers",
+        description="Moonshine via Transformers MoonshineForConditionalGeneration",
+        supports_whisper=False,
         supports_parakeet=False,
         supports_canary=False,
-        supports_moonshine=False,
+        supports_moonshine=True,
         supports_granite=False,
     )
 
@@ -32,9 +32,11 @@ class TransformersWhisperFramework:
 
 
 def _model_id(size: str) -> str:
-    if size == "large-v3":
-        return "openai/whisper-large-v3"
-    return f"openai/whisper-{size}"
+    if size == "tiny":
+        return "UsefulSensors/moonshine-tiny"
+    if size == "base":
+        return "UsefulSensors/moonshine-base"
+    return f"UsefulSensors/moonshine-{size}"
 
 
 def _load_wav_16k_mono(path: str) -> np.ndarray:
@@ -48,16 +50,17 @@ def _load_wav_16k_mono(path: str) -> np.ndarray:
     return audio
 
 
-def benchmark_whisper_models(
+def benchmark_moonshine_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
     progress: Callable[[str], None] | None = None,
 ) -> list[ModelBenchmark]:
+    del language
     try:
         import torch
-        from transformers import WhisperForConditionalGeneration, WhisperProcessor
+        from transformers import AutoProcessor, MoonshineForConditionalGeneration
     except Exception as exc:  # noqa: BLE001
         return [
             ModelBenchmark(
@@ -68,7 +71,7 @@ def benchmark_whisper_models(
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
-                notes=f"transformers unavailable: {exc}",
+                notes=f"moonshine unavailable: {exc}",
                 transcript=None,
                 wer=None,
             )
@@ -99,39 +102,37 @@ def benchmark_whisper_models(
     for model in models:
         model_id = _model_id(model.size)
         try:
-            processor = WhisperProcessor.from_pretrained(model_id)
+            processor = AutoProcessor.from_pretrained(model_id)
             try:
-                whisper = WhisperForConditionalGeneration.from_pretrained(
+                asr_model = MoonshineForConditionalGeneration.from_pretrained(
                     model_id, dtype=dtype
                 ).to(device)
             except Exception:  # noqa: BLE001
                 device = torch.device("cpu")
                 dtype = torch.float32
                 device_note = "cpu"
-                whisper = WhisperForConditionalGeneration.from_pretrained(
+                asr_model = MoonshineForConditionalGeneration.from_pretrained(
                     model_id, dtype=dtype
                 ).to(device)
+            asr_model.eval()
             last_transcript: str | None = None
 
             def run_once() -> None:
                 nonlocal last_transcript
                 inputs = processor(
                     audio,
-                    sampling_rate=16000,
+                    sampling_rate=processor.feature_extractor.sampling_rate,
                     return_tensors="pt",
-                    padding="longest",
-                    truncation=False,
-                    return_attention_mask=True,
                 )
-                input_features = inputs.input_features.to(device=device, dtype=dtype)
-                attention_mask = inputs.attention_mask.to(device)
-                with torch.no_grad():
-                    generated_ids = whisper.generate(
-                        input_features,
-                        attention_mask=attention_mask,
-                        task="transcribe",
-                        language=language,
-                        return_timestamps=True,
+                inputs = inputs.to(device=device, dtype=dtype)
+                token_limit_factor = (
+                    6.5 / processor.feature_extractor.sampling_rate
+                )
+                seq_lens = inputs.attention_mask.sum(dim=-1)
+                max_length = int((seq_lens * token_limit_factor).max().item())
+                with torch.inference_mode():
+                    generated_ids = asr_model.generate(
+                        **inputs, max_length=max_length, do_sample=False
                     )
                 decoded = processor.batch_decode(
                     generated_ids, skip_special_tokens=True
@@ -140,7 +141,7 @@ def benchmark_whisper_models(
                     last_transcript = decoded[0].strip() or None
 
             stats = measure_rtfx(
-                name=f"transformers:{model.size}",
+                name=f"moonshine:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 config=perf_config,
@@ -160,7 +161,7 @@ def benchmark_whisper_models(
                 )
             )
         except Exception as exc:  # noqa: BLE001
-            note = f"transformers failed: {exc}"
+            note = f"moonshine failed: {exc}"
             if cuda_err and torch.cuda.is_available():
                 note = f"{note}; cuda unavailable: {cuda_err}"
             results.append(
@@ -178,6 +179,6 @@ def benchmark_whisper_models(
                 )
             )
         if progress is not None:
-            progress(f"transformers {model.name} {model.size}")
+            progress(f"moonshine {model.name} {model.size}")
 
     return results

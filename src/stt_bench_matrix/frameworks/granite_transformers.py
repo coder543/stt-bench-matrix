@@ -16,15 +16,15 @@ from .base import FrameworkInfo
 
 
 @dataclass(frozen=True)
-class TransformersWhisperFramework:
+class GraniteTransformersFramework:
     info: FrameworkInfo = FrameworkInfo(
-        name="transformers",
-        description="Hugging Face Transformers Whisper",
-        supports_whisper=True,
+        name="granite-transformers",
+        description="IBM Granite Speech via Transformers",
+        supports_whisper=False,
         supports_parakeet=False,
         supports_canary=False,
         supports_moonshine=False,
-        supports_granite=False,
+        supports_granite=True,
     )
 
     def is_supported(self, host: HostInfo) -> bool:
@@ -32,9 +32,11 @@ class TransformersWhisperFramework:
 
 
 def _model_id(size: str) -> str:
-    if size == "large-v3":
-        return "openai/whisper-large-v3"
-    return f"openai/whisper-{size}"
+    if size == "2b":
+        return "ibm-granite/granite-speech-3.3-2b"
+    if size == "8b":
+        return "ibm-granite/granite-speech-3.3-8b"
+    return size
 
 
 def _load_wav_16k_mono(path: str) -> np.ndarray:
@@ -48,16 +50,19 @@ def _load_wav_16k_mono(path: str) -> np.ndarray:
     return audio
 
 
-def benchmark_whisper_models(
+def benchmark_granite_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
     progress: Callable[[str], None] | None = None,
 ) -> list[ModelBenchmark]:
+    del language
+    if not models:
+        return []
     try:
         import torch
-        from transformers import WhisperForConditionalGeneration, WhisperProcessor
+        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
     except Exception as exc:  # noqa: BLE001
         return [
             ModelBenchmark(
@@ -68,7 +73,7 @@ def benchmark_whisper_models(
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
-                notes=f"transformers unavailable: {exc}",
+                notes=f"granite unavailable: {exc}",
                 transcript=None,
                 wer=None,
             )
@@ -93,54 +98,84 @@ def benchmark_whisper_models(
         device_note = "cpu"
 
     audio = _load_wav_16k_mono(str(sample.audio_path))
+    max_new_tokens = min(4096, max(256, int(sample.duration_seconds * 4)))
 
     results: list[ModelBenchmark] = []
 
     for model in models:
         model_id = _model_id(model.size)
         try:
-            processor = WhisperProcessor.from_pretrained(model_id)
+            processor = AutoProcessor.from_pretrained(model_id)
+            tokenizer = processor.tokenizer
             try:
-                whisper = WhisperForConditionalGeneration.from_pretrained(
+                asr_model = AutoModelForSpeechSeq2Seq.from_pretrained(
                     model_id, dtype=dtype
                 ).to(device)
             except Exception:  # noqa: BLE001
                 device = torch.device("cpu")
                 dtype = torch.float32
                 device_note = "cpu"
-                whisper = WhisperForConditionalGeneration.from_pretrained(
+                asr_model = AutoModelForSpeechSeq2Seq.from_pretrained(
                     model_id, dtype=dtype
                 ).to(device)
+            asr_model.eval()
             last_transcript: str | None = None
 
             def run_once() -> None:
                 nonlocal last_transcript
-                inputs = processor(
-                    audio,
-                    sampling_rate=16000,
-                    return_tensors="pt",
-                    padding="longest",
-                    truncation=False,
-                    return_attention_mask=True,
+                audio_tensor = torch.from_numpy(audio).unsqueeze(0)
+                chat = [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Knowledge Cutoff Date: April 2024.\n"
+                            "Today's Date: December 27, 2025.\n"
+                            "You are Granite, developed by IBM. "
+                            "You are a helpful AI assistant."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": "<|audio|>can you transcribe the speech into a written format?",
+                    },
+                ]
+                prompt = tokenizer.apply_chat_template(
+                    chat, tokenize=False, add_generation_prompt=True
                 )
-                input_features = inputs.input_features.to(device=device, dtype=dtype)
-                attention_mask = inputs.attention_mask.to(device)
-                with torch.no_grad():
-                    generated_ids = whisper.generate(
-                        input_features,
-                        attention_mask=attention_mask,
-                        task="transcribe",
-                        language=language,
-                        return_timestamps=True,
+                inputs = processor(
+                    prompt,
+                    audio_tensor,
+                    device=str(device),
+                    return_tensors="pt",
+                ).to(device=device, dtype=dtype)
+                with torch.inference_mode():
+                    generated = asr_model.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        num_beams=4,
+                        do_sample=False,
+                        min_length=1,
+                        top_p=1.0,
+                        repetition_penalty=3.0,
+                        length_penalty=1.0,
+                        temperature=1.0,
+                        bos_token_id=tokenizer.bos_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        pad_token_id=tokenizer.pad_token_id,
                     )
-                decoded = processor.batch_decode(
-                    generated_ids, skip_special_tokens=True
+                num_input_tokens = inputs["input_ids"].shape[-1]
+                new_tokens = generated[:, num_input_tokens:]
+                decoded = tokenizer.batch_decode(
+                    new_tokens,
+                    skip_special_tokens=True,
+                    add_special_tokens=False,
+                    clean_up_tokenization_spaces=True,
                 )
                 if decoded:
                     last_transcript = decoded[0].strip() or None
 
             stats = measure_rtfx(
-                name=f"transformers:{model.size}",
+                name=f"granite:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 config=perf_config,
@@ -160,7 +195,7 @@ def benchmark_whisper_models(
                 )
             )
         except Exception as exc:  # noqa: BLE001
-            note = f"transformers failed: {exc}"
+            note = f"granite failed: {exc}"
             if cuda_err and torch.cuda.is_available():
                 note = f"{note}; cuda unavailable: {cuda_err}"
             results.append(
@@ -178,6 +213,6 @@ def benchmark_whisper_models(
                 )
             )
         if progress is not None:
-            progress(f"transformers {model.name} {model.size}")
+            progress(f"granite {model.name} {model.size}")
 
     return results

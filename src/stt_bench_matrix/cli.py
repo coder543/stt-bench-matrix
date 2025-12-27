@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run only Parakeet benchmarks (respects --quick/--quick-2)",
     )
     parser.add_argument(
+        "--heavy",
+        action="store_true",
+        help="Include heavy models (e.g. Granite Speech 3.3 8B)",
+    )
+    parser.add_argument(
         "--lang",
         default="en",
         help="Language code to use when supported (default: en)",
@@ -96,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         quick=args.quick,
         quick_2=args.quick_2,
         parakeet_only=args.parakeet,
+        heavy=args.heavy,
         frameworks=selected_frameworks,
     )
 

@@ -13,6 +13,8 @@ class FrameworkInfo:
     supports_whisper: bool
     supports_parakeet: bool
     supports_canary: bool
+    supports_moonshine: bool
+    supports_granite: bool
 
 
 class Framework(Protocol):

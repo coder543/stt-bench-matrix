@@ -44,7 +44,22 @@ from ..frameworks.parakeet_nemo import (
     benchmark_parakeet_models as benchmark_parakeet_nemo_models,
     ParakeetNemoFramework,
 )
-from ..models.registry import whisper_models, parakeet_models, canary_models, ModelSpec
+from ..frameworks.moonshine_transformers import (
+    benchmark_moonshine_models,
+    MoonshineTransformersFramework,
+)
+from ..frameworks.granite_transformers import (
+    benchmark_granite_models,
+    GraniteTransformersFramework,
+)
+from ..models.registry import (
+    whisper_models,
+    parakeet_models,
+    canary_models,
+    moonshine_models,
+    granite_models,
+    ModelSpec,
+)
 from ..platforms.detect import HostInfo
 
 
@@ -54,6 +69,8 @@ def _benchmark_framework(
     whisper_model_list: list[ModelSpec],
     canary_model_list: list[ModelSpec],
     parakeet_model_list: list[ModelSpec],
+    moonshine_model_list: list[ModelSpec],
+    granite_model_list: list[ModelSpec],
     use_cache: bool,
     perf_config: PerfConfig,
     sample: SampleSpec,
@@ -138,6 +155,24 @@ def _benchmark_framework(
             perf_config=perf_config,
             progress=progress_cb,
         )
+    elif isinstance(framework, MoonshineTransformersFramework):
+        moonshine_list = moonshine_model_list
+        models = benchmark_moonshine_models(
+            sample,
+            moonshine_list,
+            perf_config=perf_config,
+            language=language,
+            progress=progress_cb,
+        )
+    elif isinstance(framework, GraniteTransformersFramework):
+        granite_list = granite_model_list
+        models = benchmark_granite_models(
+            sample,
+            granite_list,
+            perf_config=perf_config,
+            language=language,
+            progress=progress_cb,
+        )
     else:
         # Placeholder: real benchmarking will be added once framework runners exist.
         models = [
@@ -172,6 +207,7 @@ def run_benchmarks(
     quick: bool = False,
     quick_2: bool = False,
     parakeet_only: bool = False,
+    heavy: bool = False,
     frameworks: set[str] | None = None,
 ) -> BenchmarkResults:
     start = time.perf_counter()
@@ -179,12 +215,18 @@ def run_benchmarks(
     whisper_model_list = whisper_models()
     canary_model_list = canary_models()
     parakeet_model_list = parakeet_models()
+    moonshine_model_list = moonshine_models()
+    granite_model_list = granite_models() if heavy else []
     if quick_2:
         whisper_model_list = [
             ModelSpec(name="whisper", size="tiny", family="whisper"),
             ModelSpec(name="whisper", size="base", family="whisper"),
         ]
         canary_model_list = [canary_model_list[0]]
+        moonshine_model_list = [
+            ModelSpec(name="moonshine", size="tiny", family="moonshine"),
+            ModelSpec(name="moonshine", size="base", family="moonshine"),
+        ]
         parakeet_model_list = [
             ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),
             ModelSpec(name="parakeet-rnnt", size="0.6b", family="parakeet"),
@@ -193,10 +235,15 @@ def run_benchmarks(
             ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="ctc"),
             ModelSpec(name="parakeet-realtime-eou", size="120m-v1", family="parakeet"),
         ]
+        granite_model_list = []
         perf_config = PerfConfig(warmups=0, runs=2)
     elif quick:
         whisper_model_list = [ModelSpec(name="whisper", size="tiny", family="whisper")]
         canary_model_list = [canary_model_list[0]]
+        moonshine_model_list = [
+            ModelSpec(name="moonshine", size="tiny", family="moonshine"),
+            ModelSpec(name="moonshine", size="base", family="moonshine"),
+        ]
         parakeet_model_list = [
             ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),
             ModelSpec(name="parakeet-rnnt", size="0.6b", family="parakeet"),
@@ -205,6 +252,7 @@ def run_benchmarks(
             ModelSpec(name="parakeet-tdt-ctc", size="110m", family="parakeet", variant="ctc"),
             ModelSpec(name="parakeet-realtime-eou", size="120m-v1", family="parakeet"),
         ]
+        granite_model_list = []
         perf_config = PerfConfig(warmups=0, runs=2)
     else:
         perf_config = PerfConfig(warmups=1, runs=3)
@@ -215,6 +263,10 @@ def run_benchmarks(
         if frameworks is not None and framework.info.name not in frameworks:
             continue
         if not framework.is_supported(host):
+            continue
+        if framework.info.supports_granite and not granite_model_list:
+            continue
+        if framework.info.supports_moonshine and not moonshine_model_list:
             continue
         if isinstance(framework, WhisperCppFramework) and not has_whisper_cli():
             continue
@@ -227,6 +279,10 @@ def run_benchmarks(
             total_steps += len(parakeet_model_list)
         if framework.info.supports_canary:
             total_steps += len(canary_model_list)
+        if framework.info.supports_moonshine:
+            total_steps += len(moonshine_model_list)
+        if framework.info.supports_granite:
+            total_steps += len(granite_model_list)
     progress = ProgressTracker(total_steps=total_steps)
     progress.start()
     framework_results: list[FrameworkBenchmark] = []
@@ -237,6 +293,8 @@ def run_benchmarks(
             whisper_model_list,
             canary_model_list,
             parakeet_model_list,
+            moonshine_model_list,
+            granite_model_list,
             use_cache=use_cache,
             perf_config=perf_config,
             sample=sample,
