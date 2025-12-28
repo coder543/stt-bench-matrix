@@ -171,6 +171,10 @@ def main() -> int:
     parser.add_argument("--audio-path", required=True)
     parser.add_argument("--warmups", type=int, default=0)
     parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--auto", action="store_true")
+    parser.add_argument("--auto-min-runs", type=int, default=5)
+    parser.add_argument("--auto-max-runs", type=int, default=30)
+    parser.add_argument("--auto-target-cv", type=float, default=0.05)
     parser.add_argument("--chunk-seconds", type=float, default=40.0)
     parser.add_argument(
         "--decode-mode",
@@ -306,11 +310,33 @@ def main() -> int:
 
     elapsed_values: list[float] = []
     transcripts: list[str | None] = []
-    for _ in range(args.runs):
+    def _should_stop_auto(values: list[float]) -> bool:
+        if not values:
+            return False
+        min_runs = max(1, args.auto_min_runs)
+        if len(values) < min_runs:
+            return False
+        max_runs = max(min_runs, args.auto_max_runs)
+        if len(values) >= max_runs:
+            return True
+        mean = statistics.fmean(values)
+        if mean <= 0:
+            return False
+        stdev = statistics.stdev(values) if len(values) >= 2 else 0.0
+        cv = stdev / mean if mean > 0 else 0.0
+        return cv <= max(0.0, args.auto_target_cv)
+
+    run_target = args.runs if not args.auto else None
+    while True:
         start = time.perf_counter()
         transcript = run_once()
         elapsed_values.append(time.perf_counter() - start)
         transcripts.append(transcript)
+        if run_target is not None:
+            if len(elapsed_values) >= run_target:
+                break
+        elif _should_stop_auto(elapsed_values):
+            break
     wall_seconds = time.perf_counter() - wall_start
 
     rtfx_values = [sample_seconds / v for v in elapsed_values]

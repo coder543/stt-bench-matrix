@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Callable
 import wave
 
@@ -48,6 +49,29 @@ def _load_wav_16k_mono(path: str) -> np.ndarray:
         frames = wav.readframes(wav.getnframes())
     audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
     return audio
+
+
+def _chunk_audio(
+    audio: np.ndarray, sample_rate: int, chunk_seconds: float, overlap_seconds: float
+) -> list[np.ndarray]:
+    if chunk_seconds <= 0:
+        return [audio]
+    chunk_size = int(chunk_seconds * sample_rate)
+    overlap_size = int(max(0.0, overlap_seconds) * sample_rate)
+    if chunk_size <= 0:
+        return [audio]
+    if overlap_size >= chunk_size:
+        overlap_size = 0
+    chunks: list[np.ndarray] = []
+    start = 0
+    step = chunk_size - overlap_size
+    while start < len(audio):
+        end = min(len(audio), start + chunk_size)
+        chunks.append(audio[start:end])
+        if end == len(audio):
+            break
+        start += step
+    return chunks
 
 
 def benchmark_granite_models(
@@ -101,7 +125,9 @@ def benchmark_granite_models(
         device_note = "cpu"
 
     audio = _load_wav_16k_mono(str(sample.audio_path))
-    max_new_tokens = min(4096, max(256, int(sample.duration_seconds * 4)))
+    chunk_seconds = 60.0 if sample.duration_seconds > 60 else 0.0
+    overlap_seconds = float(os.getenv("STT_BENCH_GRANITE_CHUNK_OVERLAP", "0") or 0.0)
+    audio_chunks = _chunk_audio(audio, 16000, chunk_seconds, overlap_seconds)
 
     results: list[ModelBenchmark] = []
 
@@ -126,56 +152,65 @@ def benchmark_granite_models(
 
             def run_once() -> str | None:
                 nonlocal last_transcript
-                audio_tensor = torch.from_numpy(audio).unsqueeze(0)
-                chat = [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Knowledge Cutoff Date: April 2024.\n"
-                            "Today's Date: December 27, 2025.\n"
-                            "You are Granite, developed by IBM. "
-                            "You are a helpful AI assistant."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": "<|audio|>can you transcribe the speech into a written format?",
-                    },
-                ]
-                prompt = tokenizer.apply_chat_template(
-                    chat, tokenize=False, add_generation_prompt=True
-                )
-                inputs = processor(
-                    prompt,
-                    audio_tensor,
-                    device=str(device),
-                    return_tensors="pt",
-                ).to(device=device, dtype=dtype)
-                with torch.inference_mode():
-                    generated = asr_model.generate(
-                        **inputs,
-                        max_new_tokens=max_new_tokens,
-                        num_beams=4,
-                        do_sample=False,
-                        min_length=1,
-                        top_p=1.0,
-                        repetition_penalty=3.0,
-                        length_penalty=1.0,
-                        temperature=1.0,
-                        bos_token_id=tokenizer.bos_token_id,
-                        eos_token_id=tokenizer.eos_token_id,
-                        pad_token_id=tokenizer.pad_token_id,
+                chunks_text: list[str] = []
+                for chunk in audio_chunks:
+                    chunk_tensor = torch.from_numpy(chunk).unsqueeze(0)
+                    chat = [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Knowledge Cutoff Date: April 2024.\n"
+                                "Today's Date: December 27, 2025.\n"
+                                "You are Granite, developed by IBM. "
+                                "You are a helpful AI assistant."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                "<|audio|>can you transcribe the speech into a written format?"
+                            ),
+                        },
+                    ]
+                    prompt = tokenizer.apply_chat_template(
+                        chat, tokenize=False, add_generation_prompt=True
                     )
-                num_input_tokens = inputs["input_ids"].shape[-1]
-                new_tokens = generated[:, num_input_tokens:]
-                decoded = tokenizer.batch_decode(
-                    new_tokens,
-                    skip_special_tokens=True,
-                    add_special_tokens=False,
-                    clean_up_tokenization_spaces=True,
-                )
-                if decoded:
-                    return decoded[0].strip() or None
+                    inputs = processor(
+                        prompt,
+                        chunk_tensor,
+                        device=str(device),
+                        return_tensors="pt",
+                    ).to(device=device, dtype=dtype)
+                    max_new_tokens = 200
+                    with torch.inference_mode():
+                        generated = asr_model.generate(
+                            **inputs,
+                            max_new_tokens=max_new_tokens,
+                            num_beams=4,
+                            do_sample=False,
+                            min_length=1,
+                            top_p=1.0,
+                            repetition_penalty=3.0,
+                            length_penalty=1.0,
+                            temperature=1.0,
+                            bos_token_id=tokenizer.bos_token_id,
+                            eos_token_id=tokenizer.eos_token_id,
+                            pad_token_id=tokenizer.pad_token_id,
+                        )
+                    num_input_tokens = inputs["input_ids"].shape[-1]
+                    new_tokens = generated[:, num_input_tokens:]
+                    decoded = tokenizer.batch_decode(
+                        new_tokens,
+                        skip_special_tokens=True,
+                        add_special_tokens=False,
+                        clean_up_tokenization_spaces=True,
+                    )
+                    if decoded:
+                        text = decoded[0].strip()
+                        if text:
+                            chunks_text.append(text)
+                if chunks_text:
+                    return " ".join(chunks_text)
                 return None
 
             stats = measure_rtfx(
@@ -187,6 +222,13 @@ def benchmark_granite_models(
             last_transcript = (
                 stats.transcripts[-1] if stats.transcripts else None
             )
+            note_suffix = ""
+            if chunk_seconds > 0:
+                note_suffix = f"; chunked:{int(chunk_seconds)}s"
+            note_suffix = ""
+            if chunk_seconds > 0:
+                note_suffix = f"; chunked:{int(chunk_seconds)}s"
+            note_suffix = f"{note_suffix}; beams:4; max_new_tokens:200"
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -196,7 +238,7 @@ def benchmark_granite_models(
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
                     device=device_note,
-                    notes=f"model: {model_id}",
+                    notes=f"model: {model_id}{note_suffix}",
                     transcript=last_transcript,
                     wer=None,
                     wer_stdev=None,

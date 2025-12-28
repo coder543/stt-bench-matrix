@@ -19,7 +19,7 @@
 - `uv run stt-bench-matrix --runs 3`: fixed number of runs (disables auto mode).
 - `uv run stt-bench-matrix --auto-min-runs 3 --auto-target-cv 0.03`: tune auto-run.
 - `uv run stt-bench-matrix --include-per-run-transcripts`: include per-run transcripts in JSON.
-- `uv run stt-bench-matrix --heavy`: include heavy models (Granite 8B).
+- `uv run stt-bench-matrix --heavy`: include heavy models (Granite 2B; 8B requires `--models`).
 - `uv run stt-bench-matrix --list`: print known frameworks/models.
 - `uv run ty check`: typecheck (primary validation step).
 - `docker build -f Dockerfile.cuda -t stt-bench-matrix:cuda .`: build CUDA image.
@@ -42,4 +42,4 @@
 ## Notes for Agents
 - WER is computed only when a transcript is available; keep transcripts clean (strip tags, brackets).
 - NeMo runs via `tools/nemo_runner` with its own dependencies; do not mix imports into main package.
-- Quick runs include the smallest models; heavy models are gated by `--heavy`.
+- Heavy models are gated by `--heavy`; Granite 8B is opt-in via `--models`.

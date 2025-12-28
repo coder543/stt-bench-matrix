@@ -50,6 +50,11 @@ def moonshine_models() -> list[ModelSpec]:
 def granite_models() -> list[ModelSpec]:
     return [
         ModelSpec(name="granite-speech-3.3", size="2b", family="granite"),
+    ]
+
+
+def granite_optional_models() -> list[ModelSpec]:
+    return [
         ModelSpec(name="granite-speech-3.3", size="8b", family="granite"),
     ]
 

@@ -9,6 +9,7 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.cache/
 
 # ML model caches
 mlx_models/

@@ -10,3 +10,5 @@ output
 benchmarks
 mlx_models
 tools/nemo_runner/.venv
+.cache
+**/.cache

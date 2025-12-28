@@ -82,9 +82,17 @@ def run_nemo_benchmark(
         str(perf_config.warmups),
         "--runs",
         str(perf_config.runs),
+        "--auto-min-runs",
+        str(perf_config.auto_min_runs),
+        "--auto-max-runs",
+        str(perf_config.auto_max_runs),
+        "--auto-target-cv",
+        str(perf_config.auto_target_cv),
         "--chunk-seconds",
         str(chunk_seconds),
     ]
+    if perf_config.auto:
+        cmd.append("--auto")
     if model_type is not None:
         cmd.extend(["--model-type", model_type])
     if decode_mode is not None:

@@ -60,6 +60,7 @@ from ..models.registry import (
     canary_models,
     moonshine_models,
     granite_models,
+    granite_optional_models,
     ModelSpec,
 )
 from ..platforms.detect import HostInfo
@@ -239,7 +240,9 @@ def run_benchmarks(
     canary_model_list = canary_models()
     parakeet_model_list = parakeet_models()
     moonshine_model_list = moonshine_models()
-    granite_model_list = granite_models() if heavy else []
+    granite_model_list = granite_models() if (heavy or model_filters) else []
+    if model_filters:
+        granite_model_list = granite_model_list + granite_optional_models()
     perf_config = PerfConfig(
         warmups=warmups,
         runs=runs,
