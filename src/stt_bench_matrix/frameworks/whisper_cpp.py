@@ -169,7 +169,7 @@ def benchmark_whisper_models(
                     return (wall_elapsed, transcript)
                 gpu_match = gpu_re.search(output)
                 if gpu_match:
-                    device_note = "cuda" if gpu_match.group(1) == "1" else "cpu"
+                    device_note = "gpu" if gpu_match.group(1) == "1" else "cpu"
                 transcript = None
                 txt_path = f"{out_base}.txt"
                 if os.path.exists(txt_path):

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 from .base import FrameworkInfo
+from .mlx_cleanup import cleanup_mlx
 from ..platforms.detect import HostInfo
 from ..bench.samples import SampleSpec
 from ..bench.types import ModelBenchmark, RunResult
@@ -135,5 +136,11 @@ def benchmark_whisper_models(
                 on_result(results[-1])
             if progress is not None:
                 progress(f"lightning-whisper-mlx {model.name} {model.size}")
+        finally:
+            try:
+                del runner
+            except UnboundLocalError:
+                pass
+            cleanup_mlx()
 
     return results

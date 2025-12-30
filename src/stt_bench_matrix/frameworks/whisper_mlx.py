@@ -10,6 +10,7 @@ from ..bench.types import ModelBenchmark, RunResult
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
 from .base import FrameworkInfo
+from .mlx_cleanup import cleanup_mlx
 from huggingface_hub import snapshot_download
 from huggingface_hub.errors import LocalEntryNotFoundError
 
@@ -216,6 +217,7 @@ def benchmark_whisper_models(
                 on_result(results[-1])
             if progress is not None:
                 progress(f"{framework_name()} {model.name} {model.size}")
+        cleanup_mlx()
 
     return results
 
