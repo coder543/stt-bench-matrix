@@ -186,6 +186,14 @@ def main() -> int:
     _configure_logging()
 
     import torch
+    try:
+        from torch.utils.data import Sampler
+    except Exception:
+        Sampler = None
+    if Sampler is not None and Sampler.__init__ is object.__init__:
+        def _sampler_init(self, data_source=None) -> None:
+            return None
+        Sampler.__init__ = _sampler_init
 
     cuda_ok, cuda_err = _cuda_is_usable()
     device = torch.device("cuda") if cuda_ok else torch.device("cpu")

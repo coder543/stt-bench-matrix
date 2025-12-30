@@ -63,6 +63,14 @@ def run_nemo_benchmark(
         )
     env = dict(os.environ)
     env.pop("VIRTUAL_ENV", None)
+    env.pop("UV_NO_SYNC", None)
+    torch_wheel_dir = Path("/opt/pytorch/dist")
+    if torch_wheel_dir.exists():
+        existing_links = env.get("UV_FIND_LINKS")
+        if existing_links:
+            env["UV_FIND_LINKS"] = f"{existing_links} {torch_wheel_dir}"
+        else:
+            env["UV_FIND_LINKS"] = str(torch_wheel_dir)
     chunk_override = env.get("STT_BENCH_NEMO_CHUNK_SECONDS")
     chunk_seconds = float(chunk_override) if chunk_override else chunk_seconds
     cmd = [
@@ -97,11 +105,79 @@ def run_nemo_benchmark(
         cmd.extend(["--model-type", model_type])
     if decode_mode is not None:
         cmd.extend(["--decode-mode", decode_mode])
+    sync_cmd = [
+        "uv",
+        "sync",
+        "--project",
+        str(_runner_dir()),
+    ]
+    sync_proc = subprocess.run(
+        sync_cmd,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if sync_proc.returncode != 0:
+        raw_error = sync_proc.stderr.strip() or sync_proc.stdout.strip() or "nemo runner sync failed"
+        error = " ".join(raw_error.splitlines())
+        if len(error) > 400:
+            error = f"{error[:400]}…"
+        return NemoRunResult(
+            rtfx_mean=None,
+            rtfx_stdev=None,
+            wall_seconds=None,
+            device=None,
+            decode=None,
+            transcript=None,
+            elapsed_values=[],
+            transcripts=[],
+            error=error,
+        )
+    torch_wheel = None
+    if torch_wheel_dir.exists():
+        torch_candidates = sorted(torch_wheel_dir.glob("torch-*.whl"))
+        if torch_candidates:
+            torch_wheel = str(torch_candidates[-1])
+    if torch_wheel:
+        venv_prefix = _runner_dir() / ".venv"
+        install_cmd = [
+            "uv",
+            "pip",
+            "install",
+            "--prefix",
+            str(venv_prefix),
+            "--no-deps",
+            torch_wheel,
+        ]
+        install_proc = subprocess.run(
+            install_cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if install_proc.returncode != 0:
+            raw_error = install_proc.stderr.strip() or install_proc.stdout.strip()
+            error = " ".join(raw_error.splitlines())
+            if len(error) > 400:
+                error = f"{error[:400]}…"
+            return NemoRunResult(
+                rtfx_mean=None,
+                rtfx_stdev=None,
+                wall_seconds=None,
+                device=None,
+                decode=None,
+                transcript=None,
+                elapsed_values=[],
+                transcripts=[],
+                error=error or "nemo runner torch install failed",
+            )
+    run_env = dict(env)
+    run_env["UV_NO_SYNC"] = "1"
     proc = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
-        env=env,
+        env=run_env,
     )
     if proc.returncode != 0:
         raw_error = proc.stderr.strip() or proc.stdout.strip() or "nemo runner failed"

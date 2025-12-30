@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Callable
 import wave
@@ -90,7 +91,15 @@ def benchmark_parakeet_models(
     device = torch.device("cpu")
     dtype = torch.float32
     device_note = "cpu"
+    use_math_sdp_only = False
     if prefer_cuda:
+        try:
+            capability = torch.cuda.get_device_capability(0)
+        except Exception:
+            capability = None
+        if capability and (capability[0] >= 12):
+            # Blackwell can trip flash-attn kernels built for sm80-sm100.
+            use_math_sdp_only = True
         device = torch.device("cuda:0")
         dtype = torch.float16
         device_note = "cuda"
@@ -105,10 +114,34 @@ def benchmark_parakeet_models(
 
     results: list[ModelBenchmark] = []
 
+    def _disable_sdp_flash() -> bool:
+        try:
+            torch.backends.cuda.enable_flash_sdp(False)
+            torch.backends.cuda.enable_mem_efficient_sdp(False)
+            torch.backends.cuda.enable_math_sdp(True)
+            return True
+        except Exception:
+            return False
+
+    def _is_flash_attention_error(exc: Exception) -> bool:
+        msg = str(exc)
+        if not msg:
+            return False
+        needles = (
+            "fmha_cutlass",
+            "sm80-sm100",
+            "flash attention",
+            "flash_attn",
+            "flash_sdp",
+        )
+        lower = msg.lower()
+        return any(needle in lower or needle in msg for needle in needles)
+
     for model in supported_models:
         model_id = _model_id(model)
         try:
             processor = AutoProcessor.from_pretrained(model_id)
+            sdp_fallback = False
             try:
                 asr_model = AutoModelForCTC.from_pretrained(
                     model_id, dtype=dtype
@@ -121,6 +154,22 @@ def benchmark_parakeet_models(
                     model_id, dtype=dtype
                 ).to(device)
             asr_model.eval()
+            dtype_note = None
+            if prefer_cuda and model.size == "0.6b":
+                if use_math_sdp_only:
+                    dtype = torch.float32
+                    dtype_note = "precision: fp32"
+                    asr_model = AutoModelForCTC.from_pretrained(
+                        model_id, dtype=dtype
+                    ).to(device)
+                    asr_model.eval()
+            if use_math_sdp_only:
+                try:
+                    torch.backends.cuda.enable_flash_sdp(False)
+                    torch.backends.cuda.enable_mem_efficient_sdp(False)
+                    torch.backends.cuda.enable_math_sdp(True)
+                except Exception:
+                    pass
             last_transcript: str | None = None
             sampling_rate = processor.feature_extractor.sampling_rate
             hop_length = processor.feature_extractor.hop_length
@@ -144,6 +193,7 @@ def benchmark_parakeet_models(
                 max_samples = int(max_len * hop_length)
 
             def run_segment(segment: np.ndarray) -> list[str]:
+                nonlocal sdp_fallback
                 inputs = processor(
                     segment,
                     sampling_rate=sampling_rate,
@@ -151,8 +201,33 @@ def benchmark_parakeet_models(
                     padding="longest",
                 )
                 inputs = inputs.to(device=device, dtype=dtype)
-                with torch.inference_mode():
-                    logits = asr_model(**inputs).logits
+                sdp_cm = nullcontext()
+                if use_math_sdp_only:
+                    attn = getattr(torch.nn, "attention", None)
+                    sdpa_kernel = getattr(attn, "sdpa_kernel", None) if attn else None
+                    sdp_backend = getattr(attn, "SDPBackend", None) if attn else None
+                    if sdpa_kernel is not None and sdp_backend is not None:
+                        sdp_cm = sdpa_kernel([sdp_backend.MATH])
+                    elif hasattr(torch.backends.cuda, "sdp_kernel"):
+                        sdp_cm = torch.backends.cuda.sdp_kernel(
+                            enable_flash=False,
+                            enable_mem_efficient=False,
+                            enable_math=True,
+                        )
+                with torch.inference_mode(), sdp_cm:
+                    try:
+                        logits = asr_model(**inputs).logits
+                    except RuntimeError as exc:
+                        if (
+                            prefer_cuda
+                            and not sdp_fallback
+                            and _is_flash_attention_error(exc)
+                            and _disable_sdp_flash()
+                        ):
+                            sdp_fallback = True
+                            logits = asr_model(**inputs).logits
+                        else:
+                            raise
                     predicted_ids = torch.argmax(logits, dim=-1)
                 return processor.batch_decode(predicted_ids, skip_special_tokens=True)
 
@@ -174,6 +249,11 @@ def benchmark_parakeet_models(
                 run_once=run_once,
                 config=perf_config,
             )
+            note_parts = [f"model: {model_id}"]
+            if sdp_fallback:
+                note_parts.append("sdp: math (flash fallback)")
+            if dtype_note:
+                note_parts.append(dtype_note)
             last_transcript = (
                 stats.transcripts[-1] if stats.transcripts else None
             )
@@ -186,7 +266,7 @@ def benchmark_parakeet_models(
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
                     device=device_note,
-                    notes=f"model: {model_id}",
+                    notes="; ".join(note_parts),
                     transcript=last_transcript,
                     wer=None,
                     wer_stdev=None,

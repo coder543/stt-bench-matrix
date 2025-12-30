@@ -1548,7 +1548,7 @@ wheels = [
 
 [[package]]
 name = "lhotse"
-version = "1.32.1"
+version = "1.30.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "audioread" },
@@ -1564,9 +1564,9 @@ dependencies = [
     { name = "torch" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/fd/32baf46d238f029a22b2c1762fc717ebdb85515fb48bafa395d3de5da0f5/lhotse-1.32.1.tar.gz", hash = "sha256:8b0e946d1bd2c695b09df831ea612913f1a1f103b1aea36a4b43a8778be0a3d5", size = 674412, upload-time = "2025-11-24T16:42:25.511Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7c/99/05acadd4ee2d1cfc24a42baef9cabee859fb5fcb000ec99e8d3d624ec889/lhotse-1.30.0.tar.gz", hash = "sha256:5116046e5c608cda5f8ddc718d25f8bdc1e4c91afbb305d3615da8c8b834211f", size = 637759, upload-time = "2025-03-19T14:31:47.999Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/90/9c8e26e4d56c93784503f53e68673d9bf6ea588a36f69aa48a20e99f94b0/lhotse-1.32.1-py3-none-any.whl", hash = "sha256:f2013832c568c146a0dbc76b922afa7776c13749a67c7e685f5988fac09472d0", size = 893069, upload-time = "2025-11-24T16:42:23.806Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/05/7e61d0136e46e1d169977763d2875c1eb599bb46279ad57920ed9421b190/lhotse-1.30.0-py3-none-any.whl", hash = "sha256:eaf7fc1df8f5b3d5dc2b4b5693f969dc365f8dc9cc759a133bf4ce0cc20d4600", size = 845403, upload-time = "2025-03-19T14:31:46.04Z" },
 ]
 
 [[package]]
@@ -3952,6 +3952,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "datasets" },
+    { name = "lhotse" },
     { name = "nemo-toolkit", extra = ["asr"] },
     { name = "numpy" },
     { name = "pyarrow" },
@@ -3961,6 +3962,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "datasets", specifier = "<3" },
+    { name = "lhotse", specifier = "==1.30.0" },
     { name = "nemo-toolkit", extras = ["asr"] },
     { name = "numpy", specifier = "<2" },
     { name = "pyarrow", specifier = "<15" },
