@@ -25,7 +25,7 @@ class ParakeetNemoFramework:
     )
 
     def is_supported(self, host: HostInfo) -> bool:
-        return host.is_linux
+        return host.is_linux or host.is_macos
 
 
 def _model_id(spec: ModelSpec) -> str:
