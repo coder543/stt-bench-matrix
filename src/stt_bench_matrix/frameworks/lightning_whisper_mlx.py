@@ -38,6 +38,50 @@ def _model_name_for_size(size: str) -> str:
     return size
 
 
+def _extract_transcript(result: object) -> str | None:
+    if result is None:
+        return None
+    if isinstance(result, str):
+        text = result
+    elif isinstance(result, dict):
+        text = (
+            result.get("text")
+            or result.get("transcript")
+            or result.get("transcription")
+        )
+        if text is None:
+            segments = result.get("segments")
+            if isinstance(segments, list):
+                parts = []
+                for segment in segments:
+                    if isinstance(segment, dict):
+                        piece = segment.get("text")
+                    else:
+                        piece = getattr(segment, "text", None)
+                    if piece:
+                        parts.append(str(piece))
+                text = " ".join(parts) if parts else None
+    else:
+        text = getattr(result, "text", None) or getattr(result, "transcript", None)
+        if text is None:
+            segments = getattr(result, "segments", None)
+            if isinstance(segments, list):
+                parts = []
+                for segment in segments:
+                    piece = None
+                    if isinstance(segment, dict):
+                        piece = segment.get("text")
+                    else:
+                        piece = getattr(segment, "text", None)
+                    if piece:
+                        parts.append(str(piece))
+                text = " ".join(parts) if parts else None
+    if text is None:
+        return None
+    text = str(text).strip()
+    return text or None
+
+
 def benchmark_whisper_models(
     sample: SampleSpec,
     models: list[ModelSpec],
@@ -74,8 +118,9 @@ def benchmark_whisper_models(
         try:
             runner = LightningWhisperMLX(model=model_name)
 
-            def run_once() -> None:
-                _ = runner.transcribe(str(sample.audio_path))
+            def run_once() -> str | None:
+                result = runner.transcribe(str(sample.audio_path))
+                return _extract_transcript(result)
 
             stats = measure_rtfx(
                 name=f"lightning-whisper-mlx:{model.size}",

@@ -44,6 +44,50 @@ def _mlx_whisper_repo_candidates(size: str) -> list[str]:
     ]
 
 
+def _extract_transcript(result: object) -> str | None:
+    if result is None:
+        return None
+    if isinstance(result, str):
+        text = result
+    elif isinstance(result, dict):
+        text = (
+            result.get("text")
+            or result.get("transcript")
+            or result.get("transcription")
+        )
+        if text is None:
+            segments = result.get("segments")
+            if isinstance(segments, list):
+                parts = []
+                for segment in segments:
+                    if isinstance(segment, dict):
+                        piece = segment.get("text")
+                    else:
+                        piece = getattr(segment, "text", None)
+                    if piece:
+                        parts.append(str(piece))
+                text = " ".join(parts) if parts else None
+    else:
+        text = getattr(result, "text", None) or getattr(result, "transcript", None)
+        if text is None:
+            segments = getattr(result, "segments", None)
+            if isinstance(segments, list):
+                parts = []
+                for segment in segments:
+                    piece = None
+                    if isinstance(segment, dict):
+                        piece = segment.get("text")
+                    else:
+                        piece = getattr(segment, "text", None)
+                    if piece:
+                        parts.append(str(piece))
+                text = " ".join(parts) if parts else None
+    if text is None:
+        return None
+    text = str(text).strip()
+    return text or None
+
+
 def benchmark_whisper_models(
     sample: SampleSpec,
     models: list[ModelSpec],
@@ -92,12 +136,13 @@ def benchmark_whisper_models(
                             repo_id=repo,
                             local_files_only=False,
                         )
-                    def run_once() -> None:
-                        _ = mlx_whisper.transcribe(
+                    def run_once() -> str | None:
+                        result = mlx_whisper.transcribe(
                             str(sample.audio_path),
                             path_or_hf_repo=local_path,
                             verbose=False,
                         )
+                        return _extract_transcript(result)
 
                     stats = measure_rtfx(
                         name=f"whisper-mlx:{model.size}",
@@ -147,12 +192,13 @@ def benchmark_whisper_models(
                         repo_id=repo,
                         local_dir=tmp_dir,
                     )
-                    def run_once() -> None:
-                        _ = mlx_whisper.transcribe(
+                    def run_once() -> str | None:
+                        result = mlx_whisper.transcribe(
                             str(sample.audio_path),
                             path_or_hf_repo=local_path,
                             verbose=False,
                         )
+                        return _extract_transcript(result)
 
                     stats = measure_rtfx(
                         name=f"whisper-mlx:{model.size}",
