@@ -1,0 +1,317 @@
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS whisper-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    build-essential \
+    cmake \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build whisper.cpp CLI with CUDA support.
+ARG CUDA_TARGET_DIR=""
+ARG CUDA_ARCHITECTURES="86"
+RUN set -e; \
+    if [ -z "$$CUDA_TARGET_DIR" ]; then \
+      if [ -d /usr/local/cuda/targets/sbsa-linux ]; then \
+        CUDA_TARGET_DIR="sbsa-linux"; \
+      elif [ -d /usr/local/cuda/targets/aarch64-linux ]; then \
+        CUDA_TARGET_DIR="aarch64-linux"; \
+      elif [ -d /usr/local/cuda/targets/x86_64-linux ]; then \
+        CUDA_TARGET_DIR="x86_64-linux"; \
+      else \
+        arch="$$(uname -m)"; \
+        case "$$arch" in \
+          x86_64) CUDA_TARGET_DIR="x86_64-linux" ;; \
+          aarch64|arm64) CUDA_TARGET_DIR="aarch64-linux" ;; \
+          *) echo "Unsupported CUDA target arch: $$arch" >&2; exit 1 ;; \
+        esac; \
+      fi; \
+    fi; \
+    CUDA_TARGET_STUBS="/usr/local/cuda/targets/$${CUDA_TARGET_DIR}/lib/stubs"; \
+    CUDA_STUBS="/usr/local/cuda/lib64/stubs:$${CUDA_TARGET_STUBS}"; \
+    export LD_LIBRARY_PATH="$${CUDA_STUBS}:$${LD_LIBRARY_PATH}"; \
+    export LIBRARY_PATH="$${CUDA_STUBS}:$${LIBRARY_PATH}"; \
+    CUDA_LINK_FLAGS="-L/usr/local/cuda/lib64/stubs -Wl,-rpath-link,/usr/local/cuda/lib64/stubs -Wl,-rpath-link,$${CUDA_TARGET_STUBS} -lcuda"; \
+    export CMAKE_EXE_LINKER_FLAGS="$$CUDA_LINK_FLAGS"; \
+    export CMAKE_SHARED_LINKER_FLAGS="$$CUDA_LINK_FLAGS"; \
+    ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1; \
+    if [ -d "$${CUDA_TARGET_STUBS}" ]; then \
+      ln -sf "$${CUDA_TARGET_STUBS}/libcuda.so" "$${CUDA_TARGET_STUBS}/libcuda.so.1"; \
+    fi; \
+    git clone --depth 1 https://github.com/ggerganov/whisper.cpp /opt/whisper.cpp; \
+    cmake -S /opt/whisper.cpp -B /opt/whisper.cpp/build \
+      -DGGML_CUDA=ON \
+      -DGGML_CUDA_NO_VMM=ON \
+      -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}"; \
+    cmake --build /opt/whisper.cpp/build -j --target whisper-cli
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS torch-builder
+
+ARG TORCH_SOURCE=0
+ARG TORCH_REPO_REF=main
+ARG TORCH_CUDA_ARCH_LIST="12.1+PTX"
+ARG TORCH_BUILD_VERSION="2.11.0"
+ARG TORCH_BUILD_NUMBER="0"
+ARG TORCH_MAX_JOBS=8
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN if [ "$TORCH_SOURCE" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+        build-essential \
+        cmake \
+        pkg-config \
+        software-properties-common \
+        ninja-build \
+        libopenblas-dev \
+        libomp-dev \
+        libcudnn8-dev \
+        && add-apt-repository ppa:deadsnakes/ppa \
+        && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-venv \
+        python3.11-dev \
+        python3.11-distutils \
+        && rm -rf /var/lib/apt/lists/*; \
+      python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip; \
+      python3.11 -m pip install --no-cache-dir pyyaml packaging typing_extensions numpy; \
+      git clone --depth 1 --branch "$TORCH_REPO_REF" https://github.com/pytorch/pytorch /opt/pytorch; \
+      cd /opt/pytorch; \
+      git submodule sync --recursive; \
+      git submodule update --init --recursive; \
+      PYTORCH_BUILD_VERSION="$TORCH_BUILD_VERSION" \
+      PYTORCH_BUILD_NUMBER="$TORCH_BUILD_NUMBER" \
+      TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" \
+      USE_CUDA=1 USE_CUDNN=1 USE_NUMPY=1 BUILD_TEST=0 MAX_JOBS="$TORCH_MAX_JOBS" \
+      /usr/bin/python3.11 setup.py bdist_wheel; \
+    else \
+      mkdir -p /opt/pytorch/dist && touch /opt/pytorch/dist/dummy.whl; \
+    fi
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS torchaudio-builder
+
+ARG TORCHAUDIO_SOURCE=0
+ARG TORCHAUDIO_REPO_REF=main
+ARG TORCH_CUDA_ARCH_LIST="12.1+PTX"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+COPY --from=torch-builder /opt/pytorch/dist /opt/pytorch/dist
+
+RUN if [ "$TORCHAUDIO_SOURCE" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+        build-essential \
+        cmake \
+        pkg-config \
+        software-properties-common \
+        ninja-build \
+        libopenblas-dev \
+        libomp-dev \
+        libcudnn8-dev \
+        && add-apt-repository ppa:deadsnakes/ppa \
+        && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-venv \
+        python3.11-dev \
+        python3.11-distutils \
+        && rm -rf /var/lib/apt/lists/*; \
+      python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip; \
+      python3.11 -m pip install --no-cache-dir numpy pyyaml typing_extensions; \
+      torch_wheel="$(ls /opt/pytorch/dist/torch-*.whl | head -n 1)"; \
+      if [ -z "$torch_wheel" ]; then \
+        echo "Torch wheel not found in /opt/pytorch/dist" >&2; \
+        exit 1; \
+      fi; \
+      python3.11 -m pip install --no-deps "$torch_wheel"; \
+      git clone --depth 1 --branch "$TORCHAUDIO_REPO_REF" https://github.com/pytorch/audio /opt/torchaudio; \
+      cd /opt/torchaudio; \
+      TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" \
+      USE_CUDA=1 BUILD_SOX=0 BUILD_KALDI=0 /usr/bin/python3.11 setup.py bdist_wheel; \
+    else \
+      mkdir -p /opt/torchaudio/dist && touch /opt/torchaudio/dist/dummy.whl; \
+    fi
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS ctranslate2-builder
+
+ARG CTRANSLATE2_SOURCE=0
+ARG CTRANSLATE2_REPO_REF=v4.6.2
+ARG CTRANSLATE2_CUDA_ARCH=121
+ARG CTRANSLATE2_CUDA_ARCH_LIST=8.6+PTX
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN if [ "$CTRANSLATE2_SOURCE" = "1" ]; then \
+      set -e; \
+      apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        git \
+        build-essential \
+        cmake \
+        pkg-config \
+        ninja-build \
+        software-properties-common \
+        libopenblas-dev \
+        libcudnn8-dev \
+        && add-apt-repository ppa:deadsnakes/ppa \
+        && apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 \
+        python3.11-venv \
+        python3.11-dev \
+        python3.11-distutils \
+        && rm -rf /var/lib/apt/lists/*; \
+      python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip; \
+      python3.11 -m pip install --no-cache-dir numpy pybind11; \
+      git clone --depth 1 --branch "$CTRANSLATE2_REPO_REF" https://github.com/OpenNMT/CTranslate2 /opt/ctranslate2; \
+      cd /opt/ctranslate2; \
+      git submodule update --init --recursive; \
+      cmake -S /opt/ctranslate2 -B /opt/ctranslate2/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/ctranslate2/install \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DBUILD_SHARED_LIBS=ON \
+        -DWITH_MKL=OFF \
+        -DWITH_OPENBLAS=ON \
+        -DOPENMP_RUNTIME=COMP \
+        -DWITH_CUDA=ON \
+        -DWITH_CUDNN=ON \
+        -DCUDA_ARCH_LIST=$CTRANSLATE2_CUDA_ARCH_LIST \
+        -DCMAKE_CUDA_ARCHITECTURES=$CTRANSLATE2_CUDA_ARCH; \
+      cmake --build /opt/ctranslate2/build -j; \
+      cmake --install /opt/ctranslate2/build; \
+      mkdir -p /opt/ctranslate2/install/include; \
+      cp -r /opt/ctranslate2/include/* /opt/ctranslate2/install/include/; \
+      lib_path="$(find /opt/ctranslate2 -type f -name 'libctranslate2.so*' -o -type f -name 'libctranslate2.a' | head -n 1)"; \
+      if [ -n "$lib_path" ]; then \
+        mkdir -p /opt/ctranslate2/install/lib; \
+        lib_dir="$(dirname "$lib_path")"; \
+        if [ "$lib_dir" != "/opt/ctranslate2/install/lib" ]; then \
+          cp -a "$lib_path" /opt/ctranslate2/install/lib/; \
+        fi; \
+        lib_base="$(basename "$lib_path")"; \
+        mkdir -p /usr/lib/aarch64-linux-gnu; \
+        cp -a "$lib_path" /usr/lib/aarch64-linux-gnu/; \
+        if echo "$lib_base" | grep -q '\\.so'; then \
+          ln -sf "$lib_base" /opt/ctranslate2/install/lib/libctranslate2.so; \
+          ln -sf "$lib_base" /usr/lib/aarch64-linux-gnu/libctranslate2.so; \
+        fi; \
+      fi; \
+      if [ -d /opt/ctranslate2/install/lib ]; then \
+        cp -a /opt/ctranslate2/install/lib/libctranslate2.so* /usr/lib/aarch64-linux-gnu/ || true; \
+      fi; \
+      cd /opt/ctranslate2/python; \
+      CTRANSLATE2_ROOT=/opt/ctranslate2/install \
+      LIBRARY_PATH=/opt/ctranslate2/install/lib \
+      LD_LIBRARY_PATH=/opt/ctranslate2/install/lib \
+      python3.11 -m pip wheel . -w /opt/ctranslate2/dist --no-build-isolation; \
+    else \
+      mkdir -p /opt/ctranslate2/dist /opt/ctranslate2/install/lib; \
+      touch /opt/ctranslate2/dist/dummy.whl; \
+    fi
+
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV STT_BENCH_GIT_REV=unknown
+ENV STT_BENCH_GIT_SHA=unknown
+ENV STT_BENCH_GIT_DIRTY=unknown
+ENV UV_PYTHON=/usr/bin/python3.11
+ENV UV_NO_SYNC=1
+
+ARG TORCH_SOURCE=0
+ARG TORCHAUDIO_SOURCE=0
+ARG CTRANSLATE2_SOURCE=0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    ca-certificates \
+    git \
+    build-essential \
+    cmake \
+    pkg-config \
+    ninja-build \
+    libopenblas-dev \
+    libomp-dev \
+    cuda-cupti-12-4 \
+    libcudnn8 \
+    ffmpeg \
+    libsndfile1 \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    python3.11-distutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip
+RUN python3.11 -m pip install --no-cache-dir uv
+RUN git config --global --add safe.directory /workspace
+
+COPY --from=whisper-builder /opt/whisper.cpp/build/bin/whisper-cli /opt/whisper.cpp/build/bin/whisper-cli
+COPY --from=whisper-builder /opt/whisper.cpp/build/src /opt/whisper.cpp/build/src
+COPY --from=whisper-builder /opt/whisper.cpp/build/ggml/src /opt/whisper.cpp/build/ggml/src
+COPY --from=torch-builder /opt/pytorch/dist /opt/pytorch/dist
+COPY --from=torchaudio-builder /opt/torchaudio/dist /opt/torchaudio/dist
+COPY --from=ctranslate2-builder /opt/ctranslate2/dist /opt/ctranslate2/dist
+COPY --from=ctranslate2-builder /opt/ctranslate2/install/lib /opt/ctranslate2/install/lib
+
+ENV PATH="/opt/whisper.cpp/build/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/workspace/.venv/lib/python3.11/site-packages/nvidia/cudnn/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cublas/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusparse/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusolver/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cufft/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/nccl/lib:/opt/whisper.cpp/build/src:/opt/whisper.cpp/build/ggml/src:/opt/whisper.cpp/build/ggml/src/ggml-cuda:${LD_LIBRARY_PATH}"
+
+WORKDIR /workspace
+COPY . .
+RUN mkdir -p /workspace/output \
+    && chmod -R a+rwx /workspace/tools/nemo_runner /workspace/output
+
+RUN if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+      sha="$(git rev-parse --short HEAD)"; \
+      dirty="0"; \
+      if [ -n "$(git status --porcelain)" ]; then dirty="1"; fi; \
+      printf "export STT_BENCH_GIT_REV=%s\\n" "$sha" > /etc/stt-bench-git.env; \
+      printf "export STT_BENCH_GIT_SHA=%s\\n" "$sha" >> /etc/stt-bench-git.env; \
+      printf "export STT_BENCH_GIT_DIRTY=%s\\n" "$dirty" >> /etc/stt-bench-git.env; \
+    fi
+
+RUN uv sync
+
+RUN if [ "$TORCH_SOURCE" = "1" ]; then \
+      wheel="$(ls /opt/pytorch/dist/torch-*.whl | head -n 1)"; \
+      if [ -z "$wheel" ]; then \
+        echo "Torch wheel not found in /opt/pytorch/dist" >&2; \
+        exit 1; \
+      fi; \
+      UV_PYTHON=/workspace/.venv/bin/python uv pip install --no-deps "$wheel"; \
+    fi
+
+RUN if [ "$TORCHAUDIO_SOURCE" = "1" ]; then \
+      wheel="$(ls /opt/torchaudio/dist/torchaudio-*.whl | head -n 1)"; \
+      if [ -z "$wheel" ]; then \
+        echo "Torchaudio wheel not found in /opt/torchaudio/dist" >&2; \
+        exit 1; \
+      fi; \
+      UV_PYTHON=/workspace/.venv/bin/python uv pip install --no-deps "$wheel"; \
+    fi
+
+RUN if [ "$CTRANSLATE2_SOURCE" = "1" ]; then \
+      wheel="$(ls /opt/ctranslate2/dist/ctranslate2-*.whl | head -n 1)"; \
+      if [ -z "$wheel" ]; then \
+        echo "CTranslate2 wheel not found in /opt/ctranslate2/dist" >&2; \
+        exit 1; \
+      fi; \
+      UV_PYTHON=/workspace/.venv/bin/python uv pip install --no-deps "$wheel"; \
+      if ls /opt/ctranslate2/install/lib/libctranslate2.so* >/dev/null 2>&1; then \
+        cp -a /opt/ctranslate2/install/lib/libctranslate2.so* /usr/lib/aarch64-linux-gnu/; \
+      fi; \
+    fi
+
+COPY docker/entrypoint.sh /usr/local/bin/stt-bench-entrypoint
+RUN chmod +x /usr/local/bin/stt-bench-entrypoint
+
+ENTRYPOINT ["/usr/local/bin/stt-bench-entrypoint"]
