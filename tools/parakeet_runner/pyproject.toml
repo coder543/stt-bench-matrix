@@ -1,0 +1,15 @@
+[project]
+name = "parakeet-runner"
+version = "0.1.0"
+description = "Subprocess runner for parakeet-mlx"
+requires-python = ">=3.11"
+dependencies = [
+  "parakeet-mlx",
+]
+
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["parakeet_runner"]

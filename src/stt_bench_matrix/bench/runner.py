@@ -45,6 +45,10 @@ from ..frameworks.parakeet_nemo import (
     benchmark_parakeet_models as benchmark_parakeet_nemo_models,
     ParakeetNemoFramework,
 )
+from ..frameworks.parakeet_mlx import (
+    benchmark_parakeet_models as benchmark_parakeet_mlx_models,
+    ParakeetMlxFramework,
+)
 from ..frameworks.moonshine_transformers import (
     benchmark_moonshine_models,
     MoonshineTransformersFramework,
@@ -153,6 +157,15 @@ def _benchmark_framework(
     elif isinstance(framework, ParakeetNemoFramework):
         parakeet_list = parakeet_model_list
         models = benchmark_parakeet_nemo_models(
+            sample,
+            parakeet_list,
+            perf_config=perf_config,
+            progress=progress_cb,
+            on_result=on_result,
+        )
+    elif isinstance(framework, ParakeetMlxFramework):
+        parakeet_list = parakeet_model_list
+        models = benchmark_parakeet_mlx_models(
             sample,
             parakeet_list,
             perf_config=perf_config,
@@ -271,6 +284,14 @@ def run_benchmarks(
         parakeet_model_list = [m for m in parakeet_model_list if _match_model(m)]
         moonshine_model_list = [m for m in moonshine_model_list if _match_model(m)]
         granite_model_list = [m for m in granite_model_list if _match_model(m)]
+        if not parakeet_model_list:
+            for token in model_filters:
+                if token.startswith("parakeet-") and ":" in token:
+                    name, size = token.split(":", 1)
+                    if name and size:
+                        parakeet_model_list.append(
+                            ModelSpec(name=name, size=size, family="parakeet")
+                        )
     frameworks_to_run: list[Framework] = []
     for framework in all_frameworks():
         if parakeet_only and not framework.info.supports_parakeet:
@@ -378,7 +399,7 @@ def run_benchmarks(
             )
             _emit_update()
 
-        _benchmark_framework(
+        result = _benchmark_framework(
             framework,
             host,
             whisper_model_list,
@@ -393,6 +414,14 @@ def run_benchmarks(
             progress=progress,
             on_result=_on_result,
         )
+        if result is not None and not models_list and result.models:
+            models_list.extend(result.models)
+            framework_results[framework_index] = FrameworkBenchmark(
+                framework=framework.info.name,
+                supported=True,
+                reason=None,
+                models=models_list,
+            )
     _emit_update()
     total_seconds = time.perf_counter() - start
     final_results = BenchmarkResults(

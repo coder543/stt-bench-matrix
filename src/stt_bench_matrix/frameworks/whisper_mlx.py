@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
+from ..bench.transcripts import extract_transcript
+
 from ..bench.samples import SampleSpec
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.types import ModelBenchmark, RunResult
@@ -44,48 +46,6 @@ def _mlx_whisper_repo_candidates(size: str) -> list[str]:
     ]
 
 
-def _extract_transcript(result: object) -> str | None:
-    if result is None:
-        return None
-    if isinstance(result, str):
-        text = result
-    elif isinstance(result, dict):
-        text = (
-            result.get("text")
-            or result.get("transcript")
-            or result.get("transcription")
-        )
-        if text is None:
-            segments = result.get("segments")
-            if isinstance(segments, list):
-                parts = []
-                for segment in segments:
-                    if isinstance(segment, dict):
-                        piece = segment.get("text")
-                    else:
-                        piece = getattr(segment, "text", None)
-                    if piece:
-                        parts.append(str(piece))
-                text = " ".join(parts) if parts else None
-    else:
-        text = getattr(result, "text", None) or getattr(result, "transcript", None)
-        if text is None:
-            segments = getattr(result, "segments", None)
-            if isinstance(segments, list):
-                parts = []
-                for segment in segments:
-                    piece = None
-                    if isinstance(segment, dict):
-                        piece = segment.get("text")
-                    else:
-                        piece = getattr(segment, "text", None)
-                    if piece:
-                        parts.append(str(piece))
-                text = " ".join(parts) if parts else None
-    if text is None:
-        return None
-    text = str(text).strip()
-    return text or None
 
 
 def benchmark_whisper_models(
@@ -142,7 +102,7 @@ def benchmark_whisper_models(
                             path_or_hf_repo=local_path,
                             verbose=False,
                         )
-                        return _extract_transcript(result)
+                        return extract_transcript(result)
 
                     stats = measure_rtfx(
                         name=f"whisper-mlx:{model.size}",
@@ -198,7 +158,7 @@ def benchmark_whisper_models(
                             path_or_hf_repo=local_path,
                             verbose=False,
                         )
-                        return _extract_transcript(result)
+                        return extract_transcript(result)
 
                     stats = measure_rtfx(
                         name=f"whisper-mlx:{model.size}",
