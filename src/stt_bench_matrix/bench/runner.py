@@ -74,6 +74,7 @@ def _benchmark_framework(
     framework: Framework,
     host: HostInfo,
     whisper_model_list: list[ModelSpec],
+    faster_whisper_model_list: list[ModelSpec],
     canary_model_list: list[ModelSpec],
     parakeet_model_list: list[ModelSpec],
     moonshine_model_list: list[ModelSpec],
@@ -130,7 +131,7 @@ def _benchmark_framework(
     elif isinstance(framework, FasterWhisperFramework):
         models = benchmark_faster_whisper_models(
             sample,
-            whisper_model_list,
+            faster_whisper_model_list,
             perf_config=perf_config,
             language=language,
             progress=progress_cb,
@@ -292,6 +293,11 @@ def run_benchmarks(
                         parakeet_model_list.append(
                             ModelSpec(name=name, size=size, family="parakeet")
                         )
+    faster_whisper_model_list = whisper_model_list
+    if not heavy and not model_filters:
+        faster_whisper_model_list = [
+            model for model in whisper_model_list if model.size != "large-v3"
+        ]
     frameworks_to_run: list[Framework] = []
     for framework in all_frameworks():
         if parakeet_only and not framework.info.supports_parakeet:
@@ -310,7 +316,10 @@ def run_benchmarks(
     total_steps = 0
     for framework in frameworks_to_run:
         if framework.info.supports_whisper:
-            total_steps += len(whisper_model_list)
+            if isinstance(framework, FasterWhisperFramework):
+                total_steps += len(faster_whisper_model_list)
+            else:
+                total_steps += len(whisper_model_list)
         if framework.info.supports_parakeet:
             total_steps += len(parakeet_model_list)
         if framework.info.supports_canary:
@@ -403,6 +412,7 @@ def run_benchmarks(
             framework,
             host,
             whisper_model_list,
+            faster_whisper_model_list,
             canary_model_list,
             parakeet_model_list,
             moonshine_model_list,

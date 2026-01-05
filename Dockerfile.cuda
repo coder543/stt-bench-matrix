@@ -142,8 +142,8 @@ FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS ctranslate2-builder
 
 ARG CTRANSLATE2_SOURCE=0
 ARG CTRANSLATE2_REPO_REF=v4.6.2
-ARG CTRANSLATE2_CUDA_ARCH=121
-ARG CTRANSLATE2_CUDA_ARCH_LIST=8.6+PTX
+ARG CTRANSLATE2_CUDA_ARCH=
+ARG CTRANSLATE2_CUDA_ARCH_LIST=9.0+PTX
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -171,6 +171,13 @@ RUN if [ "$CTRANSLATE2_SOURCE" = "1" ]; then \
       git clone --depth 1 --branch "$CTRANSLATE2_REPO_REF" https://github.com/OpenNMT/CTranslate2 /opt/ctranslate2; \
       cd /opt/ctranslate2; \
       git submodule update --init --recursive; \
+      ct2_cuda_arch_flags=""; \
+      if [ -n "$CTRANSLATE2_CUDA_ARCH_LIST" ]; then \
+        ct2_cuda_arch_flags="$ct2_cuda_arch_flags -DCUDA_ARCH_LIST=$CTRANSLATE2_CUDA_ARCH_LIST"; \
+      fi; \
+      if [ -n "$CTRANSLATE2_CUDA_ARCH" ]; then \
+        ct2_cuda_arch_flags="$ct2_cuda_arch_flags -DCMAKE_CUDA_ARCHITECTURES=$CTRANSLATE2_CUDA_ARCH"; \
+      fi; \
       cmake -S /opt/ctranslate2 -B /opt/ctranslate2/build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/opt/ctranslate2/install \
@@ -181,8 +188,7 @@ RUN if [ "$CTRANSLATE2_SOURCE" = "1" ]; then \
         -DOPENMP_RUNTIME=COMP \
         -DWITH_CUDA=ON \
         -DWITH_CUDNN=ON \
-        -DCUDA_ARCH_LIST=$CTRANSLATE2_CUDA_ARCH_LIST \
-        -DCMAKE_CUDA_ARCHITECTURES=$CTRANSLATE2_CUDA_ARCH; \
+        $ct2_cuda_arch_flags; \
       cmake --build /opt/ctranslate2/build -j; \
       cmake --install /opt/ctranslate2/build; \
       mkdir -p /opt/ctranslate2/install/include; \
@@ -267,8 +273,8 @@ ENV LD_LIBRARY_PATH="/workspace/.venv/lib/python3.11/site-packages/nvidia/cudnn/
 
 WORKDIR /workspace
 COPY . .
-RUN mkdir -p /workspace/output \
-    && chmod -R a+rwx /workspace/tools/nemo_runner /workspace/output
+RUN mkdir -p /workspace/output /workspace/.cache/uv /workspace/.cache/huggingface \
+    && chmod -R a+rwx /workspace
 
 RUN if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
       sha="$(git rev-parse --short HEAD)"; \

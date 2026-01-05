@@ -20,6 +20,7 @@ class NemoRunResult:
     wall_seconds: float | None
     device: str | None
     decode: str | None
+    precision: str | None
     transcript: str | None
     elapsed_values: list[float]
     transcripts: list[str | None]
@@ -56,6 +57,7 @@ def run_nemo_benchmark(
             wall_seconds=None,
             device=None,
             decode=None,
+            precision=None,
             transcript=None,
             elapsed_values=[],
             transcripts=[],
@@ -128,6 +130,7 @@ def run_nemo_benchmark(
             wall_seconds=None,
             device=None,
             decode=None,
+            precision=None,
             transcript=None,
             elapsed_values=[],
             transcripts=[],
@@ -164,13 +167,14 @@ def run_nemo_benchmark(
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 wall_seconds=None,
-                device=None,
-                decode=None,
-                transcript=None,
-                elapsed_values=[],
-                transcripts=[],
-                error=error or "nemo runner torch install failed",
-            )
+            device=None,
+            decode=None,
+            precision=None,
+            transcript=None,
+            elapsed_values=[],
+            transcripts=[],
+            error=error or "nemo runner torch install failed",
+        )
     run_env = dict(env)
     run_env["UV_NO_SYNC"] = "1"
     proc = subprocess.run(
@@ -190,6 +194,7 @@ def run_nemo_benchmark(
             wall_seconds=None,
             device=None,
             decode=None,
+            precision=None,
             transcript=None,
             elapsed_values=[],
             transcripts=[],
@@ -203,6 +208,7 @@ def run_nemo_benchmark(
             wall_seconds=None,
             device=None,
             decode=None,
+            precision=None,
             transcript=None,
             elapsed_values=[],
             transcripts=[],
@@ -218,6 +224,7 @@ def run_nemo_benchmark(
             wall_seconds=None,
             device=None,
             decode=None,
+            precision=None,
             transcript=None,
             elapsed_values=[],
             transcripts=[],
@@ -229,6 +236,7 @@ def run_nemo_benchmark(
         wall_seconds=payload.get("wall_seconds"),
         device=payload.get("device"),
         decode=payload.get("decode"),
+        precision=payload.get("precision"),
         transcript=payload.get("transcript"),
         elapsed_values=payload.get("elapsed_values") or [],
         transcripts=payload.get("transcripts") or [],
@@ -286,6 +294,8 @@ def benchmark_nemo_models(
             notes = f"model: {model_id}"
             if run_result.decode:
                 notes = f"{notes}; decode: {run_result.decode}"
+            if run_result.precision:
+                notes = f"{notes}; precision: {run_result.precision}"
             run_rtfx_values = [
                 sample.duration_seconds / v
                 for v in run_result.elapsed_values

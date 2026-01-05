@@ -86,3 +86,5 @@ uv run stt-bench-matrix --list
 
 - Model caching should be **transparent** and **stable**, with a single cache directory per framework.
 - The tool should degrade gracefully: if a framework isn’t supported on a machine, it should be skipped with a clear reason.
+- DGX Spark (arm64 Blackwell) currently requires **source-built CUDA torch/torchaudio**; use `Dockerfile.cuda` with `--build-arg TORCH_SOURCE=1 --build-arg TORCHAUDIO_SOURCE=1` to enable GPU for transformers-based runs.
+- Parakeet realtime EOU is a **streaming/EOU model**; offline WER on the full sample can look very poor even when GPU is working. Use it for latency/RTFx comparisons or stream-style evaluation rather than comparing WER directly.

@@ -85,13 +85,13 @@ def _set_attr_path(obj, path: list[str], value) -> bool:
     return True
 
 
-def _configure_decoding(model, task: str, model_type: str | None) -> None:
+def _configure_decoding(model, task: str, model_type: str | None) -> list[str]:
     if not hasattr(model, "change_decoding_strategy"):
-        return
+        return []
     cfg = getattr(model, "cfg", None)
     decoding = getattr(cfg, "decoding", None) if cfg is not None else None
     if decoding is None:
-        return
+        return []
     if task == "canary" or model_type in {"rnnt", "tdt", "tdt-ctc", "realtime-eou"}:
         # Prefer fast greedy decoding when available.
         _set_attr_path(decoding, ["strategy"], "greedy_batch")
@@ -103,10 +103,35 @@ def _configure_decoding(model, task: str, model_type: str | None) -> None:
             ["rnnt_decoding", "beam", "beam_size"],
         ):
             _set_attr_path(decoding, path, 1)
+    decode_notes: list[str] = []
+    decoding_strategy = os.environ.get("STT_BENCH_NEMO_DECODING_STRATEGY")
+    if decoding_strategy:
+        if _set_attr_path(decoding, ["strategy"], decoding_strategy):
+            decode_notes.append(f"strategy={decoding_strategy}")
+    rnnt_strategy = os.environ.get("STT_BENCH_NEMO_RNNT_DECODING_STRATEGY")
+    if rnnt_strategy:
+        if _set_attr_path(decoding, ["rnnt_decoding", "strategy"], rnnt_strategy):
+            decode_notes.append(f"rnnt_strategy={rnnt_strategy}")
+    beam_size_env = os.environ.get("STT_BENCH_NEMO_BEAM_SIZE")
+    if beam_size_env:
+        try:
+            beam_size = int(beam_size_env)
+        except ValueError:
+            beam_size = None
+        if beam_size is not None:
+            for path in (
+                ["beam", "beam_size"],
+                ["rnnt_decoding", "beam_size"],
+                ["rnnt_decoding", "beam", "beam_size"],
+            ):
+                if _set_attr_path(decoding, path, beam_size):
+                    decode_notes.append(f"beam={beam_size}")
+                    break
     try:
         model.change_decoding_strategy(decoding)
     except Exception:
-        return
+        return decode_notes
+    return decode_notes
 
 
 def _set_decoding_type(model, decoding, decoding_type: str) -> bool:
@@ -225,18 +250,36 @@ def main() -> int:
     else:
         # Auto: enable for CTC/CTC-like models, disable for RNNT/TDT unless overridden.
         use_autocast = cuda_ok and args.model_type in {"ctc", "tdt-ctc"}
-    _configure_decoding(model, args.task, args.model_type)
-    decode_note = None
+    precision_note = None
+    if (
+        autocast_env == "auto"
+        and args.task == "parakeet"
+        and args.model_type == "ctc"
+        and args.model_id.endswith("parakeet-ctc-0.6b")
+    ):
+        # Avoid garbage transcripts on this model when autocast is enabled.
+        use_autocast = False
+        precision_note = "fp32"
+    decode_notes = _configure_decoding(model, args.task, args.model_type)
+    decode_note = "; ".join(decode_notes) if decode_notes else None
     if args.model_type == "tdt-ctc" and args.decode_mode:
         cfg = getattr(model, "cfg", None)
         decoding = getattr(cfg, "decoding", None) if cfg is not None else None
         if args.decode_mode == "ctc":
             if _set_decoding_type(model, decoding, "ctc"):
-                decode_note = "ctc"
+                decode_note = "ctc" if decode_note is None else f"{decode_note}; type=ctc"
         else:
-            decode_note = "tdt"
+            decode_note = "tdt" if decode_note is None else f"{decode_note}; type=tdt"
     elif args.decode_mode:
-        decode_note = args.decode_mode
+        decode_note = args.decode_mode if decode_note is None else f"{decode_note}; type={args.decode_mode}"
+    decode_type_env = os.environ.get("STT_BENCH_NEMO_DECODING_TYPE")
+    if decode_type_env:
+        cfg = getattr(model, "cfg", None)
+        decoding = getattr(cfg, "decoding", None) if cfg is not None else None
+        if _set_decoding_type(model, decoding, decode_type_env):
+            decode_note = (
+                f"type={decode_type_env}" if decode_note is None else f"{decode_note}; type={decode_type_env}"
+            )
 
     sample_seconds = _wav_duration_seconds(args.audio_path)
 
@@ -358,6 +401,7 @@ def main() -> int:
         "wall_seconds": wall_seconds,
         "device": device_note,
         "decode": decode_note,
+        "precision": precision_note,
         "transcript": last_transcript,
         "elapsed_values": elapsed_values,
         "transcripts": transcripts,
