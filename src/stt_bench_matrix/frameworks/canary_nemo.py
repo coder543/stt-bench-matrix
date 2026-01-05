@@ -35,7 +35,15 @@ def _model_id(spec: ModelSpec) -> str:
         return "nvidia/canary-180m-flash"
     if spec.size == "1b-v2":
         return "nvidia/canary-1b-v2"
+    if spec.size == "qwen-2.5b":
+        return "nvidia/canary-qwen-2.5b"
     return spec.size
+
+
+def _model_type(spec: ModelSpec) -> str | None:
+    if spec.size == "qwen-2.5b":
+        return "salm"
+    return None
 
 
 def benchmark_canary_models(
@@ -51,6 +59,7 @@ def benchmark_canary_models(
         models=models,
         perf_config=perf_config,
         model_id_fn=_model_id,
+        model_type_fn=_model_type,
         chunk_seconds=20.0,
         progress=progress,
         on_result=on_result,

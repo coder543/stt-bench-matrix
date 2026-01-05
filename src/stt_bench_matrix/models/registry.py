@@ -40,6 +40,12 @@ def canary_models() -> list[ModelSpec]:
     ]
 
 
+def canary_optional_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(name="canary", size="qwen-2.5b", family="canary"),
+    ]
+
+
 def moonshine_models() -> list[ModelSpec]:
     return [
         ModelSpec(name="moonshine", size="tiny", family="moonshine"),

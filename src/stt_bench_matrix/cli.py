@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--heavy",
         action="store_true",
-        help="Include heavy models (Granite 2B; 8B is opt-in via --models)",
+        help="Include heavy models (Granite 2B; Canary 2.5B; 8B is opt-in via --models)",
     )
     parser.add_argument(
         "--lang",

@@ -15,14 +15,16 @@ def _format_bytes(value: int | None) -> str | None:
 
 def _git_revision() -> str | None:
     env_rev = os.environ.get("STT_BENCH_GIT_REV")
+    env_dirty = os.environ.get("STT_BENCH_GIT_DIRTY", "").lower()
     if env_rev and env_rev.lower() != "unknown":
-        return env_rev
+        if env_dirty in {"1", "true", "yes", "y"}:
+            return f"{env_rev} (dirty)"
+        return _append_runtime_dirty(env_rev)
     env_sha = os.environ.get("STT_BENCH_GIT_SHA")
     if env_sha and env_sha.lower() != "unknown":
-        dirty = os.environ.get("STT_BENCH_GIT_DIRTY", "").lower()
-        if dirty in {"1", "true", "yes", "y"}:
+        if env_dirty in {"1", "true", "yes", "y"}:
             return f"{env_sha} (dirty)"
-        return env_sha
+        return _append_runtime_dirty(env_sha)
     try:
         rev = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"], text=True
@@ -33,6 +35,24 @@ def _git_revision() -> str | None:
         return rev
     except Exception:
         return None
+
+
+def _append_runtime_dirty(rev: str) -> str:
+    if "dirty" in rev:
+        return rev
+    try:
+        inside = subprocess.check_output(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            text=True,
+        ).strip()
+        if inside != "true":
+            return rev
+        dirty = subprocess.check_output(["git", "status", "--porcelain"], text=True)
+        if dirty.strip():
+            return f"{rev} (dirty)"
+    except Exception:
+        return rev
+    return rev
 
 
 def render_markdown(results: BenchmarkResults) -> str:

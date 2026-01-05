@@ -52,6 +52,10 @@ def _write_wav_chunks(path: str, chunk_seconds: float, out_dir: str) -> list[str
 
 def _load_model(task: str, model_id: str, model_type: str | None):
     if task == "canary":
+        if model_type == "salm":
+            from nemo.collections.speechlm2.models import SALM  # type: ignore[unresolved-import]
+
+            return SALM.from_pretrained(model_id)
         from nemo.collections.asr.models import EncDecMultiTaskModel  # type: ignore[unresolved-import]
 
         return EncDecMultiTaskModel.from_pretrained(model_id)
@@ -230,6 +234,13 @@ def main() -> int:
     model = _load_model(args.task, args.model_id, args.model_type)
     model.eval()
     model = model.to(device)
+    if args.model_type == "salm":
+        try:
+            torch.backends.cuda.enable_flash_sdp(False)
+            torch.backends.cuda.enable_mem_efficient_sdp(False)
+            torch.backends.cuda.enable_math_sdp(True)
+        except Exception:
+            pass
     if os.environ.get("STT_BENCH_NEMO_ALLOW_TF32", "").lower() in {"1", "true", "yes", "y"}:
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
@@ -337,7 +348,72 @@ def main() -> int:
             if use_autocast
             else nullcontext()
         )
+        salm_prompt = os.environ.get("STT_BENCH_SALM_PROMPT", "Transcribe the following:")
+        salm_max_tokens_env = os.environ.get("STT_BENCH_SALM_MAX_NEW_TOKENS")
+        try:
+            salm_max_tokens = int(salm_max_tokens_env) if salm_max_tokens_env else 128
+        except ValueError:
+            salm_max_tokens = 128
         with torch.inference_mode(), autocast_cm:
+            if args.task == "canary" and args.model_type == "salm":
+                audio_tag = getattr(model, "audio_locator_tag", "<|audioplaceholder|>")
+                content = salm_prompt if audio_tag in salm_prompt else f"{salm_prompt} {audio_tag}"
+
+                def _decode_salm(ids) -> str | None:
+                    if ids is None:
+                        return None
+                    if hasattr(ids, "detach"):
+                        ids = ids.detach().cpu()
+                    if isinstance(ids, (list, tuple)):
+                        token_ids = ids
+                    else:
+                        token_ids = ids.tolist() if hasattr(ids, "tolist") else ids
+                    if isinstance(token_ids, (list, tuple)) and token_ids:
+                        first = token_ids[0]
+                        if isinstance(first, (list, tuple)):
+                            token_ids = first
+                    tokenizer = getattr(model, "tokenizer", None)
+                    if tokenizer is not None:
+                        if hasattr(tokenizer, "ids_to_text"):
+                            text = tokenizer.ids_to_text(token_ids)
+                        elif hasattr(tokenizer, "decode"):
+                            text = tokenizer.decode(token_ids)
+                        else:
+                            text = str(token_ids)
+                    else:
+                        text = str(token_ids)
+                    cleaned = _strip_tags(text)
+                    return cleaned or None
+
+                def _salm_transcribe(audio_path: str) -> str | None:
+                    prompts = [
+                        [
+                            {
+                                "role": "user",
+                                "content": content,
+                                "audio": [audio_path],
+                            }
+                        ]
+                    ]
+                    answer_ids = model.generate(
+                        prompts=prompts,
+                        max_new_tokens=salm_max_tokens,
+                    )
+                    if isinstance(answer_ids, (list, tuple)) and answer_ids:
+                        return _decode_salm(answer_ids[0])
+                    return _decode_salm(answer_ids)
+
+                if sample_seconds <= args.chunk_seconds:
+                    return _salm_transcribe(args.audio_path)
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    chunk_paths = _write_wav_chunks(args.audio_path, args.chunk_seconds, temp_dir)
+                    texts: list[str] = []
+                    for chunk in chunk_paths:
+                        text = _salm_transcribe(chunk)
+                        if text:
+                            texts.append(text)
+                    joined = " ".join(texts).strip()
+                    return joined or None
             if sample_seconds <= args.chunk_seconds:
                 outputs = model.transcribe(
                     audio=[args.audio_path],

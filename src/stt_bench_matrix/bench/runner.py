@@ -62,6 +62,7 @@ from ..models.registry import (
     whisper_optional_models,
     parakeet_models,
     canary_models,
+    canary_optional_models,
     moonshine_models,
     granite_models,
     granite_optional_models,
@@ -255,6 +256,9 @@ def run_benchmarks(
     parakeet_model_list = parakeet_models()
     moonshine_model_list = moonshine_models()
     granite_model_list = granite_models() if (heavy or model_filters) else []
+    canary_optional_list = canary_optional_models() if (heavy or model_filters) else []
+    if canary_optional_list:
+        canary_model_list = canary_model_list + canary_optional_list
     if model_filters:
         granite_model_list = granite_model_list + granite_optional_models()
     perf_config = PerfConfig(
