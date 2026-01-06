@@ -74,6 +74,15 @@ def _resolve_model_dir(model_id: str) -> Path:
     return Path(snapshot)
 
 
+def _chunk_audio(audio: "np.ndarray", sr: int, chunk_seconds: float) -> list["np.ndarray"]:
+    if chunk_seconds <= 0:
+        return [audio]
+    chunk_size = int(sr * chunk_seconds)
+    if chunk_size <= 0 or len(audio) <= chunk_size:
+        return [audio]
+    return [audio[i : i + chunk_size] for i in range(0, len(audio), chunk_size)]
+
+
 def _select_providers(ort, cuda_ok: bool) -> list[str]:
     available = ort.get_available_providers()
     env = os.getenv("STT_BENCH_GEMMA_ONNX_PROVIDERS")
@@ -195,8 +204,7 @@ def benchmark_gemma_onnx_models(
                     sr = 16000
                 return audio.astype("float32"), sr
 
-            def _build_inputs(sample_spec: SampleSpec):
-                audio, sr = _load_audio(sample_spec)
+            def _build_inputs(audio: "np.ndarray", sr: int):
                 messages = [
                     {
                         "role": "user",
@@ -232,74 +240,85 @@ def benchmark_gemma_onnx_models(
                 }
 
             def run_once(sample_spec: SampleSpec = sample) -> str | None:
-                payload = _build_inputs(sample_spec)
-                input_ids = payload["input_ids"]
-                attention_mask = payload["attention_mask"]
-                position_ids = payload["position_ids"]
-                input_features = payload["input_features"]
-                input_features_mask = payload["input_features_mask"]
-
-                batch_size = input_ids.shape[0]
-                past_key_values = {
-                    f"past_key_values.{layer}.{kv}": np.zeros(
-                        [batch_size, num_key_value_heads, 0, head_dim], dtype=np.float32
-                    )
-                    for layer in range(num_hidden_layers)
-                    for kv in ("key", "value")
-                }
-
+                audio, sr = _load_audio(sample_spec)
+                chunk_seconds = float(os.getenv("STT_BENCH_GEMMA_ONNX_CHUNK_SECONDS", "20"))
+                chunks = _chunk_audio(audio, sr, chunk_seconds)
                 embed_input_name = embed_session.get_inputs()[0].name
-                embed_outputs = embed_session.run(None, {embed_input_name: input_ids})
-                inputs_embeds = embed_outputs[0]
-                per_layer_inputs = embed_outputs[1] if len(embed_outputs) > 1 else None
-
-                if input_features is not None and input_features_mask is not None:
-                    audio_inputs = {}
-                    for inp in audio_session.get_inputs():
-                        if "mask" in inp.name:
-                            audio_inputs[inp.name] = input_features_mask
-                        else:
-                            audio_inputs[inp.name] = input_features
-                    audio_outputs = audio_session.run(None, audio_inputs)
-                    audio_features = audio_outputs[0]
-                    mask = (input_ids == audio_token_id).reshape(-1)
-                    flat_embeds = inputs_embeds.reshape(-1, inputs_embeds.shape[-1])
-                    flat_embeds[mask] = audio_features.reshape(-1, audio_features.shape[-1])
-                    inputs_embeds = flat_embeds.reshape(inputs_embeds.shape)
-
                 decoder_input_names = {inp.name for inp in decoder_session.get_inputs()}
-                generated_tokens = []
-                max_new_tokens = 256
-                for _ in range(max_new_tokens):
-                    decoder_inputs = {
-                        "inputs_embeds": inputs_embeds,
-                        "position_ids": position_ids,
-                        **past_key_values,
+                transcripts: list[str] = []
+
+                for chunk in chunks:
+                    payload = _build_inputs(chunk, sr)
+                    input_ids = payload["input_ids"]
+                    attention_mask = payload["attention_mask"]
+                    position_ids = payload["position_ids"]
+                    input_features = payload["input_features"]
+                    input_features_mask = payload["input_features_mask"]
+
+                    batch_size = input_ids.shape[0]
+                    past_key_values = {
+                        f"past_key_values.{layer}.{kv}": np.zeros(
+                            [batch_size, num_key_value_heads, 0, head_dim], dtype=np.float32
+                        )
+                        for layer in range(num_hidden_layers)
+                        for kv in ("key", "value")
                     }
-                    if per_layer_inputs is not None and "per_layer_inputs" in decoder_input_names:
-                        decoder_inputs["per_layer_inputs"] = per_layer_inputs
-                    outputs = decoder_session.run(None, decoder_inputs)
-                    logits = outputs[0]
-                    present_key_values = outputs[1:]
 
-                    input_ids = logits[:, -1].argmax(-1, keepdims=True)
-                    attention_mask = np.ones_like(input_ids)
-                    position_ids = position_ids[:, -1:] + 1
-                    for idx, key in enumerate(past_key_values):
-                        past_key_values[key] = present_key_values[idx]
+                    embed_outputs = embed_session.run(None, {embed_input_name: input_ids})
+                    inputs_embeds = embed_outputs[0]
+                    per_layer_inputs = embed_outputs[1] if len(embed_outputs) > 1 else None
 
-                    generated_tokens.append(input_ids)
-                    if (input_ids == eos_token_id).all():
-                        break
-                    inputs_embeds, per_layer_inputs = embed_session.run(
-                        None, {embed_input_name: input_ids}
-                    )
+                    if input_features is not None and input_features_mask is not None:
+                        audio_inputs = {}
+                        for inp in audio_session.get_inputs():
+                            if "mask" in inp.name:
+                                audio_inputs[inp.name] = input_features_mask
+                            else:
+                                audio_inputs[inp.name] = input_features
+                        audio_outputs = audio_session.run(None, audio_inputs)
+                        audio_features = audio_outputs[0]
+                        mask = (input_ids == audio_token_id).reshape(-1)
+                        flat_embeds = inputs_embeds.reshape(-1, inputs_embeds.shape[-1])
+                        flat_embeds[mask] = audio_features.reshape(-1, audio_features.shape[-1])
+                        inputs_embeds = flat_embeds.reshape(inputs_embeds.shape)
 
-                if not generated_tokens:
+                    generated_tokens = []
+                    max_new_tokens = 256
+                    for _ in range(max_new_tokens):
+                        decoder_inputs = {
+                            "inputs_embeds": inputs_embeds,
+                            "position_ids": position_ids,
+                            **past_key_values,
+                        }
+                        if per_layer_inputs is not None and "per_layer_inputs" in decoder_input_names:
+                            decoder_inputs["per_layer_inputs"] = per_layer_inputs
+                        outputs = decoder_session.run(None, decoder_inputs)
+                        logits = outputs[0]
+                        present_key_values = outputs[1:]
+
+                        input_ids = logits[:, -1].argmax(-1, keepdims=True)
+                        attention_mask = np.ones_like(input_ids)
+                        position_ids = position_ids[:, -1:] + 1
+                        for idx, key in enumerate(past_key_values):
+                            past_key_values[key] = present_key_values[idx]
+
+                        generated_tokens.append(input_ids)
+                        if (input_ids == eos_token_id).all():
+                            break
+                        inputs_embeds, per_layer_inputs = embed_session.run(
+                            None, {embed_input_name: input_ids}
+                        )
+
+                    if generated_tokens:
+                        generated = np.concatenate(generated_tokens, axis=-1)
+                        decoded = processor.batch_decode(generated, skip_special_tokens=True)[0]
+                        chunk_text = _extract_text(decoded)
+                        if chunk_text:
+                            transcripts.append(chunk_text)
+
+                if not transcripts:
                     return None
-                generated = np.concatenate(generated_tokens, axis=-1)
-                decoded = processor.batch_decode(generated, skip_special_tokens=True)[0]
-                return _extract_text(decoded)
+                return " ".join(transcripts)
 
             warmup_run_once = None
             if warmup_sample is not None:
