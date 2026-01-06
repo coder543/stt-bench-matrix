@@ -273,13 +273,14 @@ def benchmark_nemo_models(
         )
         if run_result.error:
             results.append(
-                ModelBenchmark(
-                    model_name=model.name,
-                    model_size=model.size,
-                    model_variant=model.variant,
-                    rtfx_mean=None,
-                    rtfx_stdev=None,
-                    bench_seconds=None,
+            ModelBenchmark(
+                model_name=model.name,
+                model_size=model.size,
+                model_variant=model.variant,
+                model_id=model_id,
+                rtfx_mean=None,
+                rtfx_stdev=None,
+                bench_seconds=None,
                     device=None,
                     notes=f"nemo failed: {run_result.error}",
                     transcript=None,
@@ -291,11 +292,15 @@ def benchmark_nemo_models(
             if on_result is not None:
                 on_result(results[-1])
         else:
-            notes = f"model: {model_id}"
+            notes = None
             if run_result.decode:
-                notes = f"{notes}; decode: {run_result.decode}"
+                notes = f"decode: {run_result.decode}"
             if run_result.precision:
-                notes = f"{notes}; precision: {run_result.precision}"
+                notes = (
+                    f"{notes}; precision: {run_result.precision}"
+                    if notes
+                    else f"precision: {run_result.precision}"
+                )
             run_rtfx_values = [
                 sample.duration_seconds / v
                 for v in run_result.elapsed_values
@@ -319,6 +324,7 @@ def benchmark_nemo_models(
                     model_name=model.name,
                     model_size=model.size,
                     model_variant=model.variant,
+                    model_id=model_id,
                     rtfx_mean=run_result.rtfx_mean,
                     rtfx_stdev=run_result.rtfx_stdev,
                     bench_seconds=run_result.wall_seconds,

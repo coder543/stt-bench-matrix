@@ -53,6 +53,16 @@ def moonshine_models() -> list[ModelSpec]:
     ]
 
 
+def nemotron_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(
+            name="nemotron-speech-streaming",
+            size="0.6b",
+            family="nemotron",
+        ),
+    ]
+
+
 def granite_models() -> list[ModelSpec]:
     return [
         ModelSpec(name="granite-speech-3.3", size="2b", family="granite"),

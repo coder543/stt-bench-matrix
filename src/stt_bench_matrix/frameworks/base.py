@@ -15,6 +15,7 @@ class FrameworkInfo:
     supports_canary: bool
     supports_moonshine: bool
     supports_granite: bool
+    supports_nemotron: bool = False
 
 
 class Framework(Protocol):

@@ -72,6 +72,7 @@ def benchmark_parakeet_models(
                 model_name=model.name,
                 model_size=model.size,
                 model_variant=model.variant,
+                model_id=None,
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
@@ -249,7 +250,7 @@ def benchmark_parakeet_models(
                 run_once=run_once,
                 config=perf_config,
             )
-            note_parts = [f"model: {model_id}"]
+            note_parts: list[str] = []
             if sdp_fallback:
                 note_parts.append("sdp: math (flash fallback)")
             if dtype_note:
@@ -262,11 +263,12 @@ def benchmark_parakeet_models(
                     model_name=model.name,
                     model_size=model.size,
                     model_variant=model.variant,
+                    model_id=model_id,
                     rtfx_mean=stats.rtfx_mean,
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
                     device=device_note,
-                    notes="; ".join(note_parts),
+                    notes="; ".join(note_parts) if note_parts else None,
                     transcript=last_transcript,
                     wer=None,
                     wer_stdev=None,
@@ -296,6 +298,7 @@ def benchmark_parakeet_models(
                     model_name=model.name,
                     model_size=model.size,
                     model_variant=model.variant,
+                    model_id=model_id,
                     rtfx_mean=None,
                     rtfx_stdev=None,
                     bench_seconds=None,

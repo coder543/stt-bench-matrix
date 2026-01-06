@@ -59,6 +59,10 @@ def _load_model(task: str, model_id: str, model_type: str | None):
         from nemo.collections.asr.models import EncDecMultiTaskModel  # type: ignore[unresolved-import]
 
         return EncDecMultiTaskModel.from_pretrained(model_id)
+    if task == "nemotron":
+        from nemo.collections.asr.models import ASRModel  # type: ignore[unresolved-import]
+
+        return ASRModel.from_pretrained(model_name=model_id)
     if task == "parakeet":
         from nemo.collections.asr.models import (  # type: ignore[unresolved-import]
             ASRModel,
@@ -96,7 +100,13 @@ def _configure_decoding(model, task: str, model_type: str | None) -> list[str]:
     decoding = getattr(cfg, "decoding", None) if cfg is not None else None
     if decoding is None:
         return []
-    if task == "canary" or model_type in {"rnnt", "tdt", "tdt-ctc", "realtime-eou"}:
+    if task == "canary" or model_type in {
+        "rnnt",
+        "tdt",
+        "tdt-ctc",
+        "realtime-eou",
+        "cache-aware-rnnt",
+    }:
         # Prefer fast greedy decoding when available.
         _set_attr_path(decoding, ["strategy"], "greedy_batch")
         _set_attr_path(decoding, ["rnnt_decoding", "strategy"], "greedy_batch")
@@ -194,7 +204,7 @@ def _cuda_is_usable() -> tuple[bool, str | None]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", required=True, choices=("canary", "parakeet"))
+    parser.add_argument("--task", required=True, choices=("canary", "parakeet", "nemotron"))
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--model-type")
     parser.add_argument("--audio-path", required=True)
@@ -234,7 +244,7 @@ def main() -> int:
     model = _load_model(args.task, args.model_id, args.model_type)
     model.eval()
     model = model.to(device)
-    if args.model_type == "salm":
+    if args.model_type in {"salm", "cache-aware-rnnt"}:
         try:
             torch.backends.cuda.enable_flash_sdp(False)
             torch.backends.cuda.enable_mem_efficient_sdp(False)
@@ -252,6 +262,35 @@ def main() -> int:
             pass
     if os.environ.get("STT_BENCH_NEMO_CUDNN_BENCHMARK", "").lower() in {"1", "true", "yes", "y"}:
         torch.backends.cudnn.benchmark = True
+    att_context_env = os.environ.get("STT_BENCH_NEMO_ATT_CONTEXT_SIZE")
+    if att_context_env is None and args.model_type == "cache-aware-rnnt":
+        att_context_env = "70,13"
+    att_context_note = None
+    if att_context_env:
+        cleaned = att_context_env.strip().strip("[]()")
+        parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+        if len(parts) == 2:
+            try:
+                att_context = [int(parts[0]), int(parts[1])]
+            except ValueError:
+                att_context = None
+            if att_context is not None:
+                applied = False
+                encoder = getattr(model, "encoder", None)
+                if encoder is not None and hasattr(encoder, "set_default_att_context_size"):
+                    try:
+                        encoder.set_default_att_context_size(att_context)
+                        applied = True
+                    except Exception:
+                        applied = False
+                if not applied and hasattr(model, "set_default_att_context_size"):
+                    try:
+                        model.set_default_att_context_size(att_context)
+                        applied = True
+                    except Exception:
+                        applied = False
+                if applied:
+                    att_context_note = f"att_context={att_context}"
 
     autocast_env = os.environ.get("STT_BENCH_NEMO_AUTOCAST", "auto").lower()
     if autocast_env in {"0", "false", "no", "n"}:
@@ -291,6 +330,8 @@ def main() -> int:
             decode_note = (
                 f"type={decode_type_env}" if decode_note is None else f"{decode_note}; type={decode_type_env}"
             )
+    if att_context_note:
+        decode_note = att_context_note if decode_note is None else f"{decode_note}; {att_context_note}"
 
     sample_seconds = _wav_duration_seconds(args.audio_path)
 

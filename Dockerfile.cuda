@@ -269,6 +269,9 @@ COPY --from=ctranslate2-builder /opt/ctranslate2/dist /opt/ctranslate2/dist
 COPY --from=ctranslate2-builder /opt/ctranslate2/install/lib /opt/ctranslate2/install/lib
 
 ENV PATH="/opt/whisper.cpp/build/bin:${PATH}"
+ENV HF_HOME="/workspace/.cache/huggingface"
+ENV UV_CACHE_DIR="/workspace/.cache/uv"
+ENV XDG_CACHE_HOME="/workspace/.cache"
 ENV LD_LIBRARY_PATH="/workspace/.venv/lib/python3.11/site-packages/nvidia/cudnn/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cublas/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusparse/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusolver/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cufft/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/nccl/lib:/opt/whisper.cpp/build/src:/opt/whisper.cpp/build/ggml/src:/opt/whisper.cpp/build/ggml/src/ggml-cuda:${LD_LIBRARY_PATH}"
 
 WORKDIR /workspace

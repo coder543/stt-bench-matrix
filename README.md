@@ -82,6 +82,38 @@ uv run stt-bench-matrix --list
 
 ---
 
+## Docker (CUDA)
+
+Build:
+
+```bash
+docker build -f Dockerfile.cuda -t stt-bench-matrix:cuda13-bw .
+```
+
+Build (DGX Spark / Blackwell, source torch + torchaudio + CTranslate2):
+
+```bash
+docker build -f Dockerfile.cuda -t stt-bench-matrix:cuda13-bw \
+  --build-arg TORCH_SOURCE=1 \
+  --build-arg TORCHAUDIO_SOURCE=1 \
+  --build-arg CTRANSLATE2_SOURCE=1 \
+  --build-arg TORCH_CUDA_ARCH_LIST=12.1+PTX \
+  --build-arg TORCH_MAX_JOBS=8 .
+```
+
+Run (persists caches and writes output):
+
+```bash
+docker run --rm --gpus all --user "$(id -u):$(id -g)" \
+  -v "$HOME/.cache/huggingface:/workspace/.cache/huggingface" \
+  -v "$HOME/.cache/uv:/workspace/.cache/uv" \
+  -v "$(pwd)/output:/workspace/output" \
+  -w /workspace \
+  stt-bench-matrix:cuda13-bw
+```
+
+---
+
 ## Notes
 
 - Model caching should be **transparent** and **stable**, with a single cache directory per framework.
@@ -89,3 +121,5 @@ uv run stt-bench-matrix --list
 - DGX Spark (arm64 Blackwell) currently requires **source-built CUDA torch/torchaudio**; use `Dockerfile.cuda` with `--build-arg TORCH_SOURCE=1 --build-arg TORCHAUDIO_SOURCE=1` to enable GPU for transformers-based runs.
 - Parakeet realtime EOU is a **streaming/EOU model**; offline WER on the full sample can look very poor even when GPU is working. Use it for latency/RTFx comparisons or stream-style evaluation rather than comparing WER directly.
 - Canary Qwen 2.5B is a SALM model; it requires NeMo with SpeechLM2 support and uses a prompt + audio input path instead of `transcribe()`.
+- Nemotron Speech Streaming 0.6B uses NeMo ASRModel with cache-aware streaming; the benchmark uses offline `transcribe()` by default, but you can set `STT_BENCH_NEMO_ATT_CONTEXT_SIZE="70,13"` to emulate a streaming chunk size when supported.
+- The Nemotron model card recommends NeMo main / runtime engine 25.11; if it fails under the pinned NeMo, you may need to upgrade the NeMo runner environment.

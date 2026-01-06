@@ -19,6 +19,7 @@ class ModelBenchmark:
     model_name: str
     model_size: str
     model_variant: str | None
+    model_id: str | None
     rtfx_mean: float | None
     rtfx_stdev: float | None
     bench_seconds: float | None

@@ -114,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             parakeet_models,
             canary_models,
             moonshine_models,
+            nemotron_models,
             granite_models,
             granite_optional_models,
         )
@@ -133,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_models("parakeet", parakeet_models())
         _print_models("canary", canary_models())
         _print_models("moonshine", moonshine_models())
+        _print_models("nemotron", nemotron_models())
         _print_models("granite", granite_models() + granite_optional_models())
         return 0
     selected_frameworks = None

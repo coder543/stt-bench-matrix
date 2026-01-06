@@ -57,6 +57,10 @@ from ..frameworks.granite_transformers import (
     benchmark_granite_models,
     GraniteTransformersFramework,
 )
+from ..frameworks.nemotron_nemo import (
+    benchmark_nemotron_models,
+    NemotronNemoFramework,
+)
 from ..models.registry import (
     whisper_models,
     whisper_optional_models,
@@ -64,6 +68,7 @@ from ..models.registry import (
     canary_models,
     canary_optional_models,
     moonshine_models,
+    nemotron_models,
     granite_models,
     granite_optional_models,
     ModelSpec,
@@ -79,6 +84,7 @@ def _benchmark_framework(
     canary_model_list: list[ModelSpec],
     parakeet_model_list: list[ModelSpec],
     moonshine_model_list: list[ModelSpec],
+    nemotron_model_list: list[ModelSpec],
     granite_model_list: list[ModelSpec],
     use_cache: bool,
     perf_config: PerfConfig,
@@ -174,6 +180,14 @@ def _benchmark_framework(
             progress=progress_cb,
             on_result=on_result,
         )
+    elif isinstance(framework, NemotronNemoFramework):
+        models = benchmark_nemotron_models(
+            sample,
+            nemotron_model_list,
+            perf_config=perf_config,
+            progress=progress_cb,
+            on_result=on_result,
+        )
     elif isinstance(framework, CanaryNemoFramework):
         canary_list = canary_model_list
         models = benchmark_canary_models(
@@ -210,6 +224,7 @@ def _benchmark_framework(
                 model_name=model.name,
                 model_size=model.size,
                 model_variant=model.variant,
+                model_id=None,
                 rtfx_mean=None,
                 rtfx_stdev=None,
                 bench_seconds=None,
@@ -256,6 +271,7 @@ def run_benchmarks(
     parakeet_model_list = parakeet_models()
     moonshine_model_list = moonshine_models()
     granite_model_list = granite_models() if (heavy or model_filters) else []
+    nemotron_model_list = nemotron_models()
     canary_optional_list = canary_optional_models() if (heavy or model_filters) else []
     if canary_optional_list:
         canary_model_list = canary_model_list + canary_optional_list
@@ -282,12 +298,17 @@ def run_benchmarks(
                 candidates.add(model.variant.lower())
             candidates.add(f"{model.name.lower()}:{model.size.lower()}")
             candidates.add(f"{model.name.lower()}-{model.size.lower()}")
+            if model.variant:
+                candidates.add(f"{model.name.lower()}-{model.variant.lower()}")
+                candidates.add(f"{model.name.lower()}-{model.variant.lower()}-{model.size.lower()}")
+                candidates.add(f"{model.name.lower()}-{model.size.lower()}-{model.variant.lower()}")
             return any(token in candidates for token in model_filters)
 
         whisper_model_list = [m for m in whisper_model_list if _match_model(m)]
         canary_model_list = [m for m in canary_model_list if _match_model(m)]
         parakeet_model_list = [m for m in parakeet_model_list if _match_model(m)]
         moonshine_model_list = [m for m in moonshine_model_list if _match_model(m)]
+        nemotron_model_list = [m for m in nemotron_model_list if _match_model(m)]
         granite_model_list = [m for m in granite_model_list if _match_model(m)]
         if not parakeet_model_list:
             for token in model_filters:
@@ -314,6 +335,8 @@ def run_benchmarks(
             continue
         if framework.info.supports_moonshine and not moonshine_model_list:
             continue
+        if framework.info.supports_nemotron and not nemotron_model_list:
+            continue
         if isinstance(framework, WhisperCppFramework) and not has_whisper_cli():
             continue
         frameworks_to_run.append(framework)
@@ -330,6 +353,8 @@ def run_benchmarks(
             total_steps += len(canary_model_list)
         if framework.info.supports_moonshine:
             total_steps += len(moonshine_model_list)
+        if framework.info.supports_nemotron:
+            total_steps += len(nemotron_model_list)
         if framework.info.supports_granite:
             total_steps += len(granite_model_list)
     progress = ProgressTracker(total_steps=total_steps)
@@ -420,6 +445,7 @@ def run_benchmarks(
             canary_model_list,
             parakeet_model_list,
             moonshine_model_list,
+            nemotron_model_list,
             granite_model_list,
             use_cache=use_cache,
             perf_config=perf_config,
