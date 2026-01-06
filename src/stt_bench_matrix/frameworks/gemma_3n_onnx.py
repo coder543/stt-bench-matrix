@@ -81,7 +81,7 @@ def _select_providers(ort, cuda_ok: bool) -> list[str]:
         requested = [p.strip() for p in env.split(",") if p.strip()]
     else:
         if cuda_ok and "CUDAExecutionProvider" in available:
-            requested = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            requested = ["CUDAExecutionProvider"]
         else:
             requested = ["CPUExecutionProvider"]
     providers = [p for p in requested if p in available]
@@ -123,8 +123,8 @@ def benchmark_gemma_onnx_models(
         ]
 
     cuda_ok, _ = cuda_is_usable()
-    providers = _select_providers(ort, cuda_ok)
-    device_note = "cuda" if "CUDAExecutionProvider" in providers else "cpu"
+    default_providers = _select_providers(ort, cuda_ok)
+    default_device = "cuda" if "CUDAExecutionProvider" in default_providers else "cpu"
 
     results: list[ModelBenchmark] = []
 
@@ -162,9 +162,21 @@ def benchmark_gemma_onnx_models(
             if not embed_path.exists() or not audio_path.exists() or not decoder_path.exists():
                 raise FileNotFoundError("missing ONNX files under onnx/")
 
-            embed_session = ort.InferenceSession(str(embed_path), providers=providers)
-            audio_session = ort.InferenceSession(str(audio_path), providers=providers)
-            decoder_session = ort.InferenceSession(str(decoder_path), providers=providers)
+            model_providers = list(default_providers)
+            device_note = default_device
+            try:
+                embed_session = ort.InferenceSession(str(embed_path), providers=model_providers)
+                audio_session = ort.InferenceSession(str(audio_path), providers=model_providers)
+                decoder_session = ort.InferenceSession(str(decoder_path), providers=model_providers)
+            except Exception:
+                if model_providers == ["CUDAExecutionProvider"] and "CPUExecutionProvider" in ort.get_available_providers():
+                    model_providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                    device_note = "cuda"
+                    embed_session = ort.InferenceSession(str(embed_path), providers=model_providers)
+                    audio_session = ort.InferenceSession(str(audio_path), providers=model_providers)
+                    decoder_session = ort.InferenceSession(str(decoder_path), providers=model_providers)
+                else:
+                    raise
 
             num_key_value_heads = config.text_config.num_key_value_heads
             head_dim = config.text_config.head_dim
