@@ -11,6 +11,7 @@ import time
 import wave
 from contextlib import nullcontext
 import re
+import sys
 
 
 def _wav_duration_seconds(path: str) -> float:
@@ -175,6 +176,21 @@ def _configure_logging() -> None:
     os.environ.setdefault("NEMO_LOG_LEVEL", "ERROR")
 
 
+def _render_run_progress(label: str, current: int, total: int) -> None:
+    total = max(total, 1)
+    current = min(max(current, 0), total)
+    width = 24
+    filled = int(width * current / total)
+    bar = "[" + ("#" * filled) + ("-" * (width - filled)) + "]"
+    line = f"Runs {bar} {current}/{total} | {label}"
+    if sys.stderr.isatty():
+        sys.stderr.write("\r\x1b[2K" + line)
+        sys.stderr.flush()
+    else:
+        sys.stderr.write(line + "\n")
+        sys.stderr.flush()
+
+
 def _cuda_is_usable() -> tuple[bool, str | None]:
     try:
         import torch
@@ -208,6 +224,7 @@ def main() -> int:
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--model-type")
     parser.add_argument("--audio-path", required=True)
+    parser.add_argument("--warmup-audio-path")
     parser.add_argument("--warmups", type=int, default=0)
     parser.add_argument("--runs", type=int, default=2)
     parser.add_argument("--auto", action="store_true")
@@ -381,7 +398,7 @@ def main() -> int:
             return joined or None
         return _text_from_obj(output)
 
-    def run_once() -> str | None:
+    def run_once(audio_path: str = args.audio_path) -> str | None:
         autocast_dtype = os.environ.get("STT_BENCH_NEMO_AUTOCAST_DTYPE", "fp16").lower()
         autocast_dtype_t = torch.float16 if autocast_dtype in {"fp16", "float16"} else torch.bfloat16
         autocast_cm = (
@@ -445,9 +462,9 @@ def main() -> int:
                     return _decode_salm(answer_ids)
 
                 if sample_seconds <= args.chunk_seconds:
-                    return _salm_transcribe(args.audio_path)
+                    return _salm_transcribe(audio_path)
                 with tempfile.TemporaryDirectory() as temp_dir:
-                    chunk_paths = _write_wav_chunks(args.audio_path, args.chunk_seconds, temp_dir)
+                    chunk_paths = _write_wav_chunks(audio_path, args.chunk_seconds, temp_dir)
                     texts: list[str] = []
                     for chunk in chunk_paths:
                         text = _salm_transcribe(chunk)
@@ -457,14 +474,14 @@ def main() -> int:
                     return joined or None
             if sample_seconds <= args.chunk_seconds:
                 outputs = model.transcribe(
-                    audio=[args.audio_path],
+                    audio=[audio_path],
                     batch_size=1,
                     num_workers=0,
                     verbose=False,
                 )
                 return _extract_transcript(outputs)
             with tempfile.TemporaryDirectory() as temp_dir:
-                chunk_paths = _write_wav_chunks(args.audio_path, args.chunk_seconds, temp_dir)
+                chunk_paths = _write_wav_chunks(audio_path, args.chunk_seconds, temp_dir)
                 outputs = model.transcribe(
                     audio=chunk_paths,
                     batch_size=1,
@@ -475,7 +492,10 @@ def main() -> int:
 
     wall_start = time.perf_counter()
     for _ in range(args.warmups):
-        run_once()
+        if args.warmup_audio_path:
+            run_once(args.warmup_audio_path)
+        else:
+            run_once()
 
     elapsed_values: list[float] = []
     transcripts: list[str | None] = []
@@ -496,16 +516,30 @@ def main() -> int:
         return cv <= max(0.0, args.auto_target_cv)
 
     run_target = args.runs if not args.auto else None
+    run_label = f"{args.task} {args.model_id}"
+    show_run_progress = not (run_target == 1)
     while True:
         start = time.perf_counter()
         transcript = run_once()
         elapsed_values.append(time.perf_counter() - start)
         transcripts.append(transcript)
+        current_runs = len(elapsed_values)
+        if run_target is not None:
+            display_target = max(1, run_target)
+        else:
+            display_target = max(1, args.auto_min_runs)
+            if current_runs > display_target:
+                display_target = current_runs
+        if show_run_progress:
+            _render_run_progress(run_label, current_runs, display_target)
         if run_target is not None:
             if len(elapsed_values) >= run_target:
                 break
         elif _should_stop_auto(elapsed_values):
             break
+    if show_run_progress and sys.stderr.isatty():
+        sys.stderr.write("\n")
+        sys.stderr.flush()
     wall_seconds = time.perf_counter() - wall_start
 
     rtfx_values = [sample_seconds / v for v in elapsed_values]

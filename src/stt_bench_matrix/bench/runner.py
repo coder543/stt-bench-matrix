@@ -89,6 +89,7 @@ def _benchmark_framework(
     use_cache: bool,
     perf_config: PerfConfig,
     sample: SampleSpec,
+    warmup_sample: SampleSpec | None,
     language: str,
     progress: ProgressTracker | None,
     on_result=None,
@@ -104,6 +105,7 @@ def _benchmark_framework(
             whisper_model_list,
             use_cache=use_cache,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -113,6 +115,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -122,6 +125,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -131,6 +135,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -140,6 +145,7 @@ def _benchmark_framework(
             sample,
             faster_whisper_model_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -149,6 +155,7 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -159,6 +166,7 @@ def _benchmark_framework(
             sample,
             parakeet_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             progress=progress_cb,
             on_result=on_result,
         )
@@ -168,6 +176,7 @@ def _benchmark_framework(
             sample,
             parakeet_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             progress=progress_cb,
             on_result=on_result,
         )
@@ -177,6 +186,7 @@ def _benchmark_framework(
             sample,
             parakeet_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             progress=progress_cb,
             on_result=on_result,
         )
@@ -185,6 +195,7 @@ def _benchmark_framework(
             sample,
             nemotron_model_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             progress=progress_cb,
             on_result=on_result,
         )
@@ -194,6 +205,7 @@ def _benchmark_framework(
             sample,
             canary_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             progress=progress_cb,
             on_result=on_result,
         )
@@ -203,6 +215,7 @@ def _benchmark_framework(
             sample,
             moonshine_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -213,6 +226,7 @@ def _benchmark_framework(
             sample,
             granite_list,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress_cb,
             on_result=on_result,
@@ -250,6 +264,7 @@ def run_benchmarks(
     host: HostInfo,
     use_cache: bool,
     sample: SampleSpec,
+    warmup_sample: SampleSpec | None,
     language: str,
     warmups: int = 1,
     runs: int = 3,
@@ -336,6 +351,10 @@ def run_benchmarks(
         if framework.info.supports_moonshine and not moonshine_model_list:
             continue
         if framework.info.supports_nemotron and not nemotron_model_list:
+            continue
+        if framework.info.supports_parakeet and not parakeet_model_list:
+            continue
+        if framework.info.supports_canary and not canary_model_list:
             continue
         if isinstance(framework, WhisperCppFramework) and not has_whisper_cli():
             continue
@@ -450,6 +469,7 @@ def run_benchmarks(
             use_cache=use_cache,
             perf_config=perf_config,
             sample=sample,
+            warmup_sample=warmup_sample,
             language=language,
             progress=progress,
             on_result=_on_result,

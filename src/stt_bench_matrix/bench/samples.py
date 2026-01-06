@@ -82,3 +82,10 @@ def sample_from_path(path: Path) -> SampleSpec:
         transcript_path=transcript_path if transcript_path.exists() else None,
         duration_seconds=duration_seconds,
     )
+
+
+def default_warmup_sample() -> SampleSpec:
+    warmup_path = _samples_dir() / "jfk_rice_16k_20s.wav"
+    if warmup_path.exists():
+        return sample_from_path(warmup_path)
+    return default_sample()

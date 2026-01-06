@@ -53,6 +53,7 @@ def benchmark_whisper_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -97,6 +98,9 @@ def benchmark_whisper_models(
         device_note = "cpu"
 
     audio = _load_wav_16k_mono(str(sample.audio_path))
+    warmup_audio = None
+    if warmup_sample is not None:
+        warmup_audio = _load_wav_16k_mono(str(warmup_sample.audio_path))
 
     results: list[ModelBenchmark] = []
 
@@ -117,9 +121,9 @@ def benchmark_whisper_models(
                 ).to(device)
             last_transcript: str | None = None
 
-            def run_once() -> str | None:
+            def run_once(audio_input=audio) -> str | None:
                 inputs = processor(
-                    audio,
+                    audio_input,
                     sampling_rate=16000,
                     return_tensors="pt",
                     padding="longest",
@@ -143,11 +147,16 @@ def benchmark_whisper_models(
                     return decoded[0].strip() or None
                 return None
 
+            warmup_run_once = None
+            if warmup_audio is not None:
+                warmup_run_once = lambda: run_once(warmup_audio)
             stats = measure_rtfx(
                 name=f"transformers:{model.size}",
                 sample=sample,
                 run_once=run_once,
+                warmup_run_once=warmup_run_once,
                 config=perf_config,
+                progress_label=f"transformers {model.name} {model.size}",
             )
             last_transcript = (
                 stats.transcripts[-1] if stats.transcripts else None

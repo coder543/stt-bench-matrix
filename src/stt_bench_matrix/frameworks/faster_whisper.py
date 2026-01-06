@@ -39,6 +39,7 @@ def benchmark_whisper_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -100,9 +101,9 @@ def benchmark_whisper_models(
                 device_note = "device: cpu (cuda failed)"
             last_transcript: str | None = None
 
-            def run_once() -> str | None:
+            def run_once(sample_spec: SampleSpec = sample) -> str | None:
                 segments, _ = whisper.transcribe(
-                    str(sample.audio_path),
+                    str(sample_spec.audio_path),
                     language=language,
                     task="transcribe",
                 )
@@ -114,11 +115,16 @@ def benchmark_whisper_models(
                 transcript = " ".join(texts).strip() or None
                 return transcript
 
+            warmup_run_once = None
+            if warmup_sample is not None:
+                warmup_run_once = lambda: run_once(warmup_sample)
             stats = measure_rtfx(
                 name=f"faster-whisper:{model.size}",
                 sample=sample,
                 run_once=run_once,
+                warmup_run_once=warmup_run_once,
                 config=perf_config,
+                progress_label=f"faster-whisper {model.name} {model.size}",
             )
             last_transcript = (
                 stats.transcripts[-1] if stats.transcripts else None

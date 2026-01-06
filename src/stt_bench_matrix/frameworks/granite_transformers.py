@@ -79,6 +79,7 @@ def benchmark_granite_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -129,6 +130,13 @@ def benchmark_granite_models(
     chunk_seconds = 60.0 if sample.duration_seconds > 60 else 0.0
     overlap_seconds = float(os.getenv("STT_BENCH_GRANITE_CHUNK_OVERLAP", "0") or 0.0)
     audio_chunks = _chunk_audio(audio, 16000, chunk_seconds, overlap_seconds)
+    warmup_chunks = None
+    if warmup_sample is not None:
+        warmup_audio = _load_wav_16k_mono(str(warmup_sample.audio_path))
+        warmup_chunk_seconds = 60.0 if warmup_sample.duration_seconds > 60 else 0.0
+        warmup_chunks = _chunk_audio(
+            warmup_audio, 16000, warmup_chunk_seconds, overlap_seconds
+        )
 
     results: list[ModelBenchmark] = []
 
@@ -151,10 +159,10 @@ def benchmark_granite_models(
             asr_model.eval()
             last_transcript: str | None = None
 
-            def run_once() -> str | None:
+            def run_once(chunks=audio_chunks) -> str | None:
                 nonlocal last_transcript
                 chunks_text: list[str] = []
-                for chunk in audio_chunks:
+                for chunk in chunks:
                     chunk_tensor = torch.from_numpy(chunk).unsqueeze(0)
                     chat = [
                         {
@@ -214,11 +222,16 @@ def benchmark_granite_models(
                     return " ".join(chunks_text)
                 return None
 
+            warmup_run_once = None
+            if warmup_chunks is not None:
+                warmup_run_once = lambda: run_once(warmup_chunks)
             stats = measure_rtfx(
                 name=f"granite:{model.size}",
                 sample=sample,
                 run_once=run_once,
+                warmup_run_once=warmup_run_once,
                 config=perf_config,
+                progress_label=f"granite {model.name} {model.size}",
             )
             last_transcript = (
                 stats.transcripts[-1] if stats.transcripts else None

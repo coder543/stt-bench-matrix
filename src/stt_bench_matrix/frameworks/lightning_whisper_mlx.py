@@ -47,6 +47,7 @@ def benchmark_whisper_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -79,15 +80,20 @@ def benchmark_whisper_models(
         try:
             runner = LightningWhisperMLX(model=model_name)
 
-            def run_once() -> str | None:
-                result = runner.transcribe(str(sample.audio_path))
+            def run_once(sample_spec: SampleSpec = sample) -> str | None:
+                result = runner.transcribe(str(sample_spec.audio_path))
                 return extract_transcript(result)
 
+            warmup_run_once = None
+            if warmup_sample is not None:
+                warmup_run_once = lambda: run_once(warmup_sample)
             stats = measure_rtfx(
                 name=f"lightning-whisper-mlx:{model.size}",
                 sample=sample,
                 run_once=run_once,
+                warmup_run_once=warmup_run_once,
                 config=perf_config,
+                progress_label=f"lightning-whisper-mlx {model.name} {model.size}",
             )
             results.append(
                 ModelBenchmark(

@@ -54,6 +54,7 @@ def benchmark_whisper_models(
     use_cache: bool,
     perf_config: PerfConfig,
     language: str,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -97,19 +98,24 @@ def benchmark_whisper_models(
                             repo_id=repo,
                             local_files_only=False,
                         )
-                    def run_once() -> str | None:
+                    def run_once(sample_spec: SampleSpec = sample) -> str | None:
                         result = mlx_whisper.transcribe(
-                            str(sample.audio_path),
+                            str(sample_spec.audio_path),
                             path_or_hf_repo=local_path,
                             verbose=False,
                         )
                         return extract_transcript(result)
 
+                    warmup_run_once = None
+                    if warmup_sample is not None:
+                        warmup_run_once = lambda: run_once(warmup_sample)
                     stats = measure_rtfx(
                         name=f"whisper-mlx:{model.size}",
                         sample=sample,
                         run_once=run_once,
+                        warmup_run_once=warmup_run_once,
                         config=perf_config,
+                        progress_label=f"whisper-mlx {model.name} {model.size}",
                     )
                     results.append(
                         ModelBenchmark(
@@ -154,19 +160,24 @@ def benchmark_whisper_models(
                         repo_id=repo,
                         local_dir=tmp_dir,
                     )
-                    def run_once() -> str | None:
+                    def run_once(sample_spec: SampleSpec = sample) -> str | None:
                         result = mlx_whisper.transcribe(
-                            str(sample.audio_path),
+                            str(sample_spec.audio_path),
                             path_or_hf_repo=local_path,
                             verbose=False,
                         )
                         return extract_transcript(result)
 
+                    warmup_run_once = None
+                    if warmup_sample is not None:
+                        warmup_run_once = lambda: run_once(warmup_sample)
                     stats = measure_rtfx(
                         name=f"whisper-mlx:{model.size}",
                         sample=sample,
                         run_once=run_once,
+                        warmup_run_once=warmup_run_once,
                         config=perf_config,
+                        progress_label=f"whisper-mlx {model.name} {model.size}",
                     )
                     results.append(
                         ModelBenchmark(

@@ -47,6 +47,7 @@ def run_nemo_benchmark(
     decode_mode: str | None,
     sample: SampleSpec,
     perf_config: PerfConfig,
+    warmup_sample: SampleSpec | None = None,
     chunk_seconds: float = 40.0,
 ) -> NemoRunResult:
     runner_script = _runner_script()
@@ -88,6 +89,8 @@ def run_nemo_benchmark(
         model_id,
         "--audio-path",
         str(sample.audio_path),
+        "--warmup-audio-path",
+        str(warmup_sample.audio_path) if warmup_sample is not None else "",
         "--warmups",
         str(perf_config.warmups),
         "--runs",
@@ -101,6 +104,8 @@ def run_nemo_benchmark(
         "--chunk-seconds",
         str(chunk_seconds),
     ]
+    if warmup_sample is None:
+        cmd = [arg for arg in cmd if arg not in ("--warmup-audio-path", "")]
     if perf_config.auto:
         cmd.append("--auto")
     if model_type is not None:
@@ -248,6 +253,7 @@ def benchmark_nemo_models(
     *,
     task: str,
     sample: SampleSpec,
+    warmup_sample: SampleSpec | None,
     models: Sequence[ModelSpec],
     perf_config: PerfConfig,
     model_id_fn,
@@ -269,6 +275,7 @@ def benchmark_nemo_models(
             decode_mode=decode_mode,
             sample=sample,
             perf_config=perf_config,
+            warmup_sample=warmup_sample,
             chunk_seconds=chunk_seconds or 40.0,
         )
         if run_result.error:

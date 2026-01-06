@@ -91,7 +91,6 @@ def render_markdown(results: BenchmarkResults) -> str:
 
     for framework in results.frameworks:
         if not framework.models:
-            lines.append(f"| {framework.framework} | - | n/a | 0 | n/a | n/a | n/a | n/a |")
             continue
 
         for model in framework.models:

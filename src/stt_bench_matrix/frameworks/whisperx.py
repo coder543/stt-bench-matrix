@@ -39,12 +39,30 @@ def benchmark_whisper_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     try:
         import torch
         import torchaudio
+        try:
+            import re
+            import semver
+
+            _semver_parse = semver.VersionInfo.parse
+
+            def _whisperx_parse_semver(cls, version: str) -> semver.VersionInfo:
+                try:
+                    return _semver_parse(version)
+                except ValueError:
+                    cleaned = re.sub(r"\+.*$", "", version)
+                    cleaned = re.sub(r"(\d+\.\d+\.\d+)([A-Za-z].*)$", r"\1-\2", cleaned)
+                    return _semver_parse(cleaned)
+
+            semver.VersionInfo.parse = classmethod(_whisperx_parse_semver)
+        except Exception:
+            pass
         torch_load = torch.load
         def _whisperx_torch_load(*args, **kwargs):
             kwargs["weights_only"] = False
@@ -145,8 +163,8 @@ def benchmark_whisper_models(
                 device_note = "cpu"
             last_transcript: str | None = None
 
-            def run_once() -> str | None:
-                audio = whisperx.load_audio(str(sample.audio_path))
+            def run_once(sample_spec: SampleSpec = sample) -> str | None:
+                audio = whisperx.load_audio(str(sample_spec.audio_path))
                 result = asr.transcribe(audio, language=language)
                 texts: list[str] = []
                 if "segments" in result:
@@ -157,11 +175,16 @@ def benchmark_whisper_models(
                 transcript = " ".join(texts).strip() or None
                 return transcript
 
+            warmup_run_once = None
+            if warmup_sample is not None:
+                warmup_run_once = lambda: run_once(warmup_sample)
             stats = measure_rtfx(
                 name=f"whisperx:{model.size}",
                 sample=sample,
                 run_once=run_once,
+                warmup_run_once=warmup_run_once,
                 config=perf_config,
+                progress_label=f"whisperx {model.name} {model.size}",
             )
             last_transcript = (
                 stats.transcripts[-1] if stats.transcripts else None

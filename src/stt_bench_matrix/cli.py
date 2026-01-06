@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .bench.runner import run_benchmarks
 from .platforms.detect import detect_host
-from .bench.samples import default_sample, sample_from_path
+from .bench.samples import default_sample, default_warmup_sample, sample_from_path
 from .reporting.markdown import render_markdown
 from .frameworks.whisper_cpp import has_whisper_cli
 from .frameworks.registry import all_frameworks
@@ -72,6 +72,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sample",
         help="Path to a 16kHz mono WAV sample to benchmark",
+    )
+    parser.add_argument(
+        "--warmup-sample",
+        help="Path to a 16kHz mono WAV sample to use for warmups (default: 20s sample)",
     )
     parser.add_argument(
         "--json",
@@ -163,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     sample = default_sample()
     if args.sample:
         sample = sample_from_path(Path(args.sample))
+    warmup_sample = default_warmup_sample()
+    if args.warmup_sample:
+        warmup_sample = sample_from_path(Path(args.warmup_sample))
     output_dir = Path("output")
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -198,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         host=host,
         use_cache=not args.no_cache,
         sample=sample,
+        warmup_sample=warmup_sample,
         language=args.lang,
         warmups=args.warmups,
         runs=args.runs if args.runs is not None else 3,

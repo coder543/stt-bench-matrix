@@ -57,6 +57,7 @@ def benchmark_parakeet_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -112,6 +113,9 @@ def benchmark_parakeet_models(
         device_note = "cpu"
 
     audio = _load_wav_16k_mono(str(sample.audio_path))
+    warmup_audio = None
+    if warmup_sample is not None:
+        warmup_audio = _load_wav_16k_mono(str(warmup_sample.audio_path))
 
     results: list[ModelBenchmark] = []
 
@@ -232,23 +236,28 @@ def benchmark_parakeet_models(
                     predicted_ids = torch.argmax(logits, dim=-1)
                 return processor.batch_decode(predicted_ids, skip_special_tokens=True)
 
-            def run_once() -> str | None:
-                if max_samples is not None and audio.shape[0] > max_samples:
+            def run_once(audio_input=audio) -> str | None:
+                if max_samples is not None and audio_input.shape[0] > max_samples:
                     decoded = []
-                    for start in range(0, audio.shape[0], max_samples):
+                    for start in range(0, audio_input.shape[0], max_samples):
                         end = start + max_samples
-                        segment = audio[start:end]
+                        segment = audio_input[start:end]
                         decoded.extend(run_segment(segment))
                     return " ".join(text.strip() for text in decoded if text).strip() or None
                 else:
-                    decoded = run_segment(audio)
+                    decoded = run_segment(audio_input)
                     return " ".join(text.strip() for text in decoded if text).strip() or None
 
+            warmup_run_once = None
+            if warmup_audio is not None:
+                warmup_run_once = lambda: run_once(warmup_audio)
             stats = measure_rtfx(
                 name=f"parakeet:{model.size}",
                 sample=sample,
                 run_once=run_once,
+                warmup_run_once=warmup_run_once,
                 config=perf_config,
+                progress_label=f"parakeet {model.name} {model.size}",
             )
             note_parts: list[str] = []
             if sdp_fallback:

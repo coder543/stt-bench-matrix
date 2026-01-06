@@ -68,6 +68,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run parakeet-mlx benchmarks.")
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--audio-path", required=True)
+    parser.add_argument("--warmup-audio-path")
     parser.add_argument("--sample-seconds", type=float, required=True)
     parser.add_argument("--warmups", type=int, default=1)
     parser.add_argument("--runs", type=int, default=3)
@@ -94,18 +95,21 @@ def main() -> int:
     chunk_seconds = args.chunk_seconds
     overlap_seconds = args.overlap_seconds
 
-    def run_once() -> str | None:
+    def run_once(audio_path: str = args.audio_path) -> str | None:
         kwargs = {}
         if chunk_seconds is not None:
             kwargs["chunk_duration"] = chunk_seconds
         if overlap_seconds is not None:
             kwargs["overlap_duration"] = overlap_seconds
-        result = model.transcribe(args.audio_path, **kwargs)
+        result = model.transcribe(audio_path, **kwargs)
         return _extract_transcript(result)
 
     start_wall = time.perf_counter()
     for _ in range(args.warmups):
-        run_once()
+        if args.warmup_audio_path:
+            run_once(args.warmup_audio_path)
+        else:
+            run_once()
 
     elapsed_values: list[float] = []
     transcripts: list[str | None] = []

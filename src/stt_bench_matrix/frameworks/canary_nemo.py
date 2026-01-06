@@ -50,12 +50,14 @@ def benchmark_canary_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
     return benchmark_nemo_models(
         task="canary",
         sample=sample,
+        warmup_sample=warmup_sample,
         models=models,
         perf_config=perf_config,
         model_id_fn=_model_id,

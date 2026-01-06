@@ -16,6 +16,7 @@ from huggingface_hub.errors import LocalEntryNotFoundError
 from ..bench.perf import PerfConfig, measure_rtfx
 from ..bench.samples import SampleSpec
 from ..bench.types import ModelBenchmark, RunResult
+from ..bench.progress import RunProgress
 from ..models.registry import ModelSpec
 from ..platforms.detect import HostInfo
 from .base import FrameworkInfo
@@ -64,6 +65,7 @@ def benchmark_whisper_models(
     models: list[ModelSpec],
     perf_config: PerfConfig,
     language: str,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -116,14 +118,14 @@ def benchmark_whisper_models(
                     text=True,
                 )
 
-            def run_once(out_base: str) -> tuple[float, str | None]:
+            def run_once(out_base: str, sample_spec: SampleSpec = sample) -> tuple[float, str | None]:
                 nonlocal device_note, note_suffix, timings_missing
                 base_cmd = [
                     whisper_cli,
                     "-m",
                     model_path,
                     "-f",
-                    str(sample.audio_path),
+                    str(sample_spec.audio_path),
                     "-l",
                     language,
                     "-of",
@@ -193,11 +195,24 @@ def benchmark_whisper_models(
             with tempfile.TemporaryDirectory() as temp_dir:
                 out_base = os.path.join(temp_dir, "whisper_output")
                 for _ in range(perf_config.warmups):
-                    _ = run_once(out_base)
+                    if warmup_sample is not None:
+                        _ = run_once(out_base, warmup_sample)
+                    else:
+                        _ = run_once(out_base)
+                run_progress = None
+                if perf_config.runs > 1:
+                    run_progress = RunProgress(
+                        label=f"whisper.cpp {model.name} {model.size}",
+                        total=max(1, perf_config.runs),
+                    )
                 for _ in range(perf_config.runs):
                     elapsed, transcript = run_once(out_base)
                     elapsed_values.append(elapsed)
                     transcripts.append(transcript)
+                    if run_progress is not None:
+                        run_progress.update(len(elapsed_values), max(1, perf_config.runs))
+                if run_progress is not None:
+                    run_progress.finish()
 
             rtfx_values = [sample.duration_seconds / v for v in elapsed_values]
             rtfx_mean = statistics.fmean(rtfx_values)

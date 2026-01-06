@@ -104,6 +104,7 @@ def run_parakeet_mlx_benchmark(
     model_id: str,
     sample: SampleSpec,
     perf_config: PerfConfig,
+    warmup_sample: SampleSpec | None,
     chunk_seconds: float | None,
     overlap_seconds: float | None,
     local_attn: bool,
@@ -141,6 +142,8 @@ def run_parakeet_mlx_benchmark(
         model_id,
         "--audio-path",
         str(sample.audio_path),
+        "--warmup-audio-path",
+        str(warmup_sample.audio_path) if warmup_sample is not None else "",
         "--sample-seconds",
         str(sample.duration_seconds),
         "--warmups",
@@ -154,6 +157,8 @@ def run_parakeet_mlx_benchmark(
         "--auto-target-cv",
         str(perf_config.auto_target_cv),
     ]
+    if warmup_sample is None:
+        cmd = [arg for arg in cmd if arg not in ("--warmup-audio-path", "")]
     if perf_config.auto:
         cmd.append("--auto")
     if chunk_seconds is not None:
@@ -211,6 +216,7 @@ def benchmark_parakeet_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
+    warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
@@ -256,6 +262,7 @@ def benchmark_parakeet_models(
                 model_id=repo,
                 sample=sample,
                 perf_config=perf_config,
+                warmup_sample=warmup_sample,
                 chunk_seconds=chunk_seconds,
                 overlap_seconds=overlap_seconds,
                 local_attn=local_attn,
@@ -268,6 +275,7 @@ def benchmark_parakeet_models(
                     model_id=repo,
                     sample=sample,
                     perf_config=perf_config,
+                    warmup_sample=warmup_sample,
                     chunk_seconds=fallback_chunk,
                     overlap_seconds=fallback_overlap,
                     local_attn=fallback_attn,
