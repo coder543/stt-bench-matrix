@@ -75,6 +75,13 @@ def granite_optional_models() -> list[ModelSpec]:
     ]
 
 
+def gemma_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(name="gemma-3n", size="e2b", family="gemma"),
+        ModelSpec(name="gemma-3n", size="e4b", family="gemma"),
+    ]
+
+
 def parakeet_models() -> list[ModelSpec]:
     return [
         ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),

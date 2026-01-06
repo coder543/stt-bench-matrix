@@ -123,3 +123,4 @@ docker run --rm --gpus all --user "$(id -u):$(id -g)" \
 - Canary Qwen 2.5B is a SALM model; it requires NeMo with SpeechLM2 support and uses a prompt + audio input path instead of `transcribe()`.
 - Nemotron Speech Streaming 0.6B uses NeMo ASRModel with cache-aware streaming; the benchmark uses offline `transcribe()` by default, but you can set `STT_BENCH_NEMO_ATT_CONTEXT_SIZE="70,13"` to emulate a streaming chunk size when supported.
 - The Nemotron model card recommends NeMo main / runtime engine 25.11; if it fails under the pinned NeMo, you may need to upgrade the NeMo runner environment.
+- Gemma 3n runs via ONNX Runtime (`gemma-3n-onnx`) and uses the `onnx-community/gemma-3n-E2B-it-ONNX` checkpoint with the `google/gemma-3n-E2B-it` processor. CUDA requires `onnxruntime-gpu`; on arm64 (DGX Spark) this is currently a source build. You can override the model snapshot location with `STT_BENCH_GEMMA_ONNX_DIR=/path/to/snapshot`.

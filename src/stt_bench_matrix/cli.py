@@ -62,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--heavy",
         action="store_true",
-        help="Include heavy models (Granite 2B; Canary 2.5B; 8B is opt-in via --models)",
+        help="Include heavy models (Granite 2B; Canary 2.5B; Gemma 3n; 8B is opt-in via --models)",
     )
     parser.add_argument(
         "--lang",
@@ -121,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             nemotron_models,
             granite_models,
             granite_optional_models,
+            gemma_models,
         )
 
         print("Frameworks:")
@@ -140,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_models("moonshine", moonshine_models())
         _print_models("nemotron", nemotron_models())
         _print_models("granite", granite_models() + granite_optional_models())
+        _print_models("gemma", gemma_models())
         return 0
     selected_frameworks = None
     if args.frameworks:

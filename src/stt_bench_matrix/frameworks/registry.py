@@ -14,6 +14,7 @@ from .whisperx import WhisperXFramework
 from .moonshine_transformers import MoonshineTransformersFramework
 from .granite_transformers import GraniteTransformersFramework
 from .nemotron_nemo import NemotronNemoFramework
+from .gemma_3n_onnx import Gemma3nOnnxFramework
 
 
 def all_frameworks() -> list[Framework]:
@@ -31,4 +32,5 @@ def all_frameworks() -> list[Framework]:
         CanaryNemoFramework(),
         NemotronNemoFramework(),
         GraniteTransformersFramework(),
+        Gemma3nOnnxFramework(),
     ]

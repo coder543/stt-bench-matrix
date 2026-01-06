@@ -57,6 +57,10 @@ from ..frameworks.granite_transformers import (
     benchmark_granite_models,
     GraniteTransformersFramework,
 )
+from ..frameworks.gemma_3n_onnx import (
+    benchmark_gemma_onnx_models,
+    Gemma3nOnnxFramework,
+)
 from ..frameworks.nemotron_nemo import (
     benchmark_nemotron_models,
     NemotronNemoFramework,
@@ -71,6 +75,7 @@ from ..models.registry import (
     nemotron_models,
     granite_models,
     granite_optional_models,
+    gemma_models,
     ModelSpec,
 )
 from ..platforms.detect import HostInfo
@@ -86,6 +91,7 @@ def _benchmark_framework(
     moonshine_model_list: list[ModelSpec],
     nemotron_model_list: list[ModelSpec],
     granite_model_list: list[ModelSpec],
+    gemma_model_list: list[ModelSpec],
     use_cache: bool,
     perf_config: PerfConfig,
     sample: SampleSpec,
@@ -231,6 +237,17 @@ def _benchmark_framework(
             progress=progress_cb,
             on_result=on_result,
         )
+    elif isinstance(framework, Gemma3nOnnxFramework):
+        gemma_list = gemma_model_list
+        models = benchmark_gemma_onnx_models(
+            sample,
+            gemma_list,
+            perf_config=perf_config,
+            warmup_sample=warmup_sample,
+            language=language,
+            progress=progress_cb,
+            on_result=on_result,
+        )
     else:
         # Placeholder: real benchmarking will be added once framework runners exist.
         models = [
@@ -286,6 +303,7 @@ def run_benchmarks(
     parakeet_model_list = parakeet_models()
     moonshine_model_list = moonshine_models()
     granite_model_list = granite_models() if (heavy or model_filters) else []
+    gemma_model_list = gemma_models() if (heavy or model_filters) else []
     nemotron_model_list = nemotron_models()
     canary_optional_list = canary_optional_models() if (heavy or model_filters) else []
     if canary_optional_list:
@@ -325,6 +343,7 @@ def run_benchmarks(
         moonshine_model_list = [m for m in moonshine_model_list if _match_model(m)]
         nemotron_model_list = [m for m in nemotron_model_list if _match_model(m)]
         granite_model_list = [m for m in granite_model_list if _match_model(m)]
+        gemma_model_list = [m for m in gemma_model_list if _match_model(m)]
         if not parakeet_model_list:
             for token in model_filters:
                 if token.startswith("parakeet-") and ":" in token:
@@ -352,6 +371,8 @@ def run_benchmarks(
             continue
         if framework.info.supports_nemotron and not nemotron_model_list:
             continue
+        if framework.info.supports_gemma and not gemma_model_list:
+            continue
         if framework.info.supports_parakeet and not parakeet_model_list:
             continue
         if framework.info.supports_canary and not canary_model_list:
@@ -376,6 +397,8 @@ def run_benchmarks(
             total_steps += len(nemotron_model_list)
         if framework.info.supports_granite:
             total_steps += len(granite_model_list)
+        if framework.info.supports_gemma:
+            total_steps += len(gemma_model_list)
     progress = ProgressTracker(total_steps=total_steps)
     progress.start()
     framework_results: list[FrameworkBenchmark] = []
@@ -466,6 +489,7 @@ def run_benchmarks(
             moonshine_model_list,
             nemotron_model_list,
             granite_model_list,
+            gemma_model_list,
             use_cache=use_cache,
             perf_config=perf_config,
             sample=sample,
