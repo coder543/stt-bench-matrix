@@ -4,7 +4,10 @@ from dataclasses import dataclass
 import os
 import re
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TYPE_CHECKING, cast, Any
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from huggingface_hub import snapshot_download
 
@@ -84,7 +87,8 @@ def _chunk_audio(audio: "np.ndarray", sr: int, chunk_seconds: float) -> list["np
 
 
 def _select_providers(ort, cuda_ok: bool) -> list[str]:
-    available = ort.get_available_providers()
+    get_available = getattr(ort, "get_available_providers", None)
+    available = list(get_available()) if callable(get_available) else []
     env = os.getenv("STT_BENCH_GEMMA_ONNX_PROVIDERS")
     if env:
         requested = [p.strip() for p in env.split(",") if p.strip()]
@@ -132,6 +136,7 @@ def benchmark_gemma_onnx_models(
         ]
 
     cuda_ok, _ = cuda_is_usable()
+    ort = cast(Any, ort)
     default_providers = _select_providers(ort, cuda_ok)
     default_device = "cuda" if "CUDAExecutionProvider" in default_providers else "cpu"
 
@@ -204,6 +209,9 @@ def benchmark_gemma_onnx_models(
                     sr = 16000
                 return audio.astype("float32"), sr
 
+            def _as_array(value) -> "np.ndarray":
+                return np.asarray(value)
+
             def _build_inputs(audio: "np.ndarray", sr: int):
                 messages = [
                     {
@@ -226,11 +234,17 @@ def benchmark_gemma_onnx_models(
                     add_special_tokens=False,
                     return_tensors="np",
                 )
-                input_ids = inputs["input_ids"]
-                attention_mask = inputs["attention_mask"]
-                position_ids = np.cumsum(attention_mask, axis=-1) - 1
-                input_features = inputs.get("input_features")
-                input_features_mask = inputs.get("input_features_mask")
+                input_ids = _as_array(inputs["input_ids"])
+                attention_mask = _as_array(inputs["attention_mask"])
+                position_ids = _as_array(np.cumsum(attention_mask, axis=-1) - 1)
+                input_features = (
+                    _as_array(inputs["input_features"]) if "input_features" in inputs else None
+                )
+                input_features_mask = (
+                    _as_array(inputs["input_features_mask"])
+                    if "input_features_mask" in inputs
+                    else None
+                )
                 return {
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,
@@ -265,7 +279,7 @@ def benchmark_gemma_onnx_models(
                     }
 
                     embed_outputs = embed_session.run(None, {embed_input_name: input_ids})
-                    inputs_embeds = embed_outputs[0]
+                    inputs_embeds = _as_array(embed_outputs[0])
                     per_layer_inputs = embed_outputs[1] if len(embed_outputs) > 1 else None
 
                     if input_features is not None and input_features_mask is not None:
@@ -276,7 +290,7 @@ def benchmark_gemma_onnx_models(
                             else:
                                 audio_inputs[inp.name] = input_features
                         audio_outputs = audio_session.run(None, audio_inputs)
-                        audio_features = audio_outputs[0]
+                        audio_features = _as_array(audio_outputs[0])
                         mask = (input_ids == audio_token_id).reshape(-1)
                         flat_embeds = inputs_embeds.reshape(-1, inputs_embeds.shape[-1])
                         flat_embeds[mask] = audio_features.reshape(-1, audio_features.shape[-1])
@@ -293,7 +307,7 @@ def benchmark_gemma_onnx_models(
                         if per_layer_inputs is not None and "per_layer_inputs" in decoder_input_names:
                             decoder_inputs["per_layer_inputs"] = per_layer_inputs
                         outputs = decoder_session.run(None, decoder_inputs)
-                        logits = outputs[0]
+                        logits = _as_array(outputs[0])
                         present_key_values = outputs[1:]
 
                         input_ids = logits[:, -1].argmax(-1, keepdims=True)

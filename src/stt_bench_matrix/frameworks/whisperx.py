@@ -60,7 +60,7 @@ def benchmark_whisper_models(
                     cleaned = re.sub(r"(\d+\.\d+\.\d+)([A-Za-z].*)$", r"\1-\2", cleaned)
                     return _semver_parse(cleaned)
 
-            semver.VersionInfo.parse = classmethod(_whisperx_parse_semver)
+            setattr(semver.VersionInfo, "parse", classmethod(_whisperx_parse_semver))
         except Exception:
             pass
         torch_load = torch.load

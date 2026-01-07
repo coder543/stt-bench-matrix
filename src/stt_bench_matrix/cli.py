@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -230,6 +231,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json_payload)
     else:
         print(markdown)
+    output_notice = (
+        f"Results saved to: {output_path} (markdown), {output_json_path} (json)"
+    )
+    if args.json:
+        print(output_notice, file=sys.stderr)
+    else:
+        print(output_notice)
 
     if warn_missing_whisper_cli and not has_whisper_cli():
         warning = (

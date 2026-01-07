@@ -24,17 +24,6 @@ The goal is to run on **macOS or Linux**, across **Apple Silicon / NVIDIA / AMD*
 
 ---
 
-## macOS focus (phase 1)
-
-We’re starting with macOS. For Whisper, the initial candidates are:
-
-- `lightning-whisper-mlx`
-- `whisper-mlx`
-
-We still need to identify the **macOS-compatible** pathways for **Parakeet** and **Canary** (frameworks, model formats, and inference runtimes).
-
----
-
 ## Architecture sketch (modular by platform + framework)
 
 The system is structured to support multiple OS/accelerators without rewriting core logic.
@@ -61,12 +50,6 @@ The CLI should emit a **single Markdown blob** with:
 - models/sizes tested
 - timing + throughput
 - accuracy metrics (WER or CER if available)
-
----
-
-## Status
-
-This repository is scaffolding the macOS implementation first. See `TODO.md` for concrete next steps.
 
 ---
 
