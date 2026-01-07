@@ -473,20 +473,58 @@ def main() -> int:
                     joined = " ".join(texts).strip()
                     return joined or None
             if sample_seconds <= args.chunk_seconds:
+                transcribe_kwargs = {}
+                if args.task == "canary":
+                    task = os.environ.get("STT_BENCH_CANARY_TASK", "asr")
+                    source_lang = os.environ.get("STT_BENCH_CANARY_SOURCE_LANG", "en")
+                    target_lang = os.environ.get("STT_BENCH_CANARY_TARGET_LANG", "en")
+                    pnc_env = os.environ.get("STT_BENCH_CANARY_PNC", "pnc").lower()
+                    if pnc_env in {"1", "true", "yes", "y"}:
+                        pnc = "yes"
+                    elif pnc_env in {"0", "false", "no", "n"}:
+                        pnc = "no"
+                    else:
+                        pnc = pnc_env
+                    transcribe_kwargs.update(
+                        task=task,
+                        source_lang=source_lang,
+                        target_lang=target_lang,
+                        pnc=pnc,
+                    )
                 outputs = model.transcribe(
                     audio=[audio_path],
                     batch_size=1,
                     num_workers=0,
                     verbose=False,
+                    **transcribe_kwargs,
                 )
                 return _extract_transcript(outputs)
             with tempfile.TemporaryDirectory() as temp_dir:
                 chunk_paths = _write_wav_chunks(audio_path, args.chunk_seconds, temp_dir)
+                transcribe_kwargs = {}
+                if args.task == "canary":
+                    task = os.environ.get("STT_BENCH_CANARY_TASK", "asr")
+                    source_lang = os.environ.get("STT_BENCH_CANARY_SOURCE_LANG", "en")
+                    target_lang = os.environ.get("STT_BENCH_CANARY_TARGET_LANG", "en")
+                    pnc_env = os.environ.get("STT_BENCH_CANARY_PNC", "pnc").lower()
+                    if pnc_env in {"1", "true", "yes", "y"}:
+                        pnc = "yes"
+                    elif pnc_env in {"0", "false", "no", "n"}:
+                        pnc = "no"
+                    else:
+                        pnc = pnc_env
+                    transcribe_kwargs.update(
+                        task=task,
+                        source_lang=source_lang,
+                        target_lang=target_lang,
+                        pnc=pnc,
+                    )
                 outputs = model.transcribe(
                     audio=chunk_paths,
                     batch_size=1,
                     num_workers=0,
                     verbose=False,
+                    **transcribe_kwargs,
                 )
                 return _extract_transcript(outputs)
 
