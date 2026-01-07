@@ -16,11 +16,15 @@ The goal is to run on **macOS or Linux**, across **Apple Silicon / NVIDIA / AMD*
 
 ---
 
-## Models (target)
+## Models
 
-- **OpenAI Whisper** — all sizes (tiny → large)
-- **NVIDIA Parakeet**
-- **NVIDIA Canary** — 180M and 1B
+- **OpenAI Whisper** — tiny → large-v3 (optional: `.en`, large-v1/v2)
+- **NVIDIA Parakeet** — CTC, RNNT, TDT, TDT-CTC (110M), realtime-EOU
+- **NVIDIA Canary** — 180m-flash, 1b-flash, 1b-v2 (optional: qwen-2.5b SALM)
+- **Moonshine** — tiny, base
+- **Nemotron Speech Streaming** — 0.6b
+- **Granite Speech 3.3** — 2b (optional heavy: 8b)
+- **Gemma 3n** — e2b, e4b (heavy, ONNX runtime)
 
 ---
 
