@@ -46,6 +46,16 @@ def _model_type(spec: ModelSpec) -> str | None:
     return None
 
 
+def _chunk_seconds(spec: ModelSpec) -> float:
+    if spec.size == "180m-flash":
+        return 40.0
+    return 20.0
+
+
+def _canary_auto_chunking(spec: ModelSpec) -> bool:
+    return spec.size == "1b-v2"
+
+
 def benchmark_canary_models(
     sample: SampleSpec,
     models: list[ModelSpec],
@@ -62,7 +72,8 @@ def benchmark_canary_models(
         perf_config=perf_config,
         model_id_fn=_model_id,
         model_type_fn=_model_type,
-        chunk_seconds=20.0,
+        chunk_seconds_fn=_chunk_seconds,
+        canary_auto_chunking_fn=_canary_auto_chunking,
         progress=progress,
         on_result=on_result,
     )

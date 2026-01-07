@@ -25,7 +25,9 @@ def _wav_duration_seconds(path: str) -> float:
     return frames / float(rate)
 
 
-def _write_wav_chunks(path: str, chunk_seconds: float, out_dir: str) -> list[str]:
+def _write_wav_chunks(
+    path: str, chunk_seconds: float, overlap_seconds: float, out_dir: str
+) -> list[str]:
     chunk_paths: list[str] = []
     with wave.open(path, "rb") as wav:
         if wav.getnchannels() != 1:
@@ -35,17 +37,29 @@ def _write_wav_chunks(path: str, chunk_seconds: float, out_dir: str) -> list[str
         rate = wav.getframerate()
         sampwidth = wav.getsampwidth()
         frames_per_chunk = int(rate * chunk_seconds)
+        overlap_frames = max(0, int(rate * overlap_seconds))
+        if frames_per_chunk <= 0:
+            return chunk_paths
+        if overlap_frames >= frames_per_chunk:
+            overlap_frames = 0
+        step = max(1, frames_per_chunk - overlap_frames)
+        frame_size = sampwidth
+        all_frames = wav.readframes(wav.getnframes())
+        total_frames = len(all_frames) // frame_size
         idx = 0
-        while True:
-            frames = wav.readframes(frames_per_chunk)
-            if not frames:
+        for start in range(0, total_frames, step):
+            end = min(total_frames, start + frames_per_chunk)
+            if end <= start:
+                break
+            chunk = all_frames[start * frame_size : end * frame_size]
+            if not chunk:
                 break
             chunk_path = os.path.join(out_dir, f"chunk_{idx}.wav")
             with wave.open(chunk_path, "wb") as out_wav:
                 out_wav.setnchannels(1)
                 out_wav.setsampwidth(sampwidth)
                 out_wav.setframerate(rate)
-                out_wav.writeframes(frames)
+                out_wav.writeframes(chunk)
             chunk_paths.append(chunk_path)
             idx += 1
     return chunk_paths
@@ -232,6 +246,7 @@ def main() -> int:
     parser.add_argument("--auto-max-runs", type=int, default=30)
     parser.add_argument("--auto-target-cv", type=float, default=0.05)
     parser.add_argument("--chunk-seconds", type=float, default=40.0)
+    parser.add_argument("--canary-auto-chunking", action="store_true")
     parser.add_argument(
         "--decode-mode",
         choices=("tdt", "ctc"),
@@ -464,7 +479,12 @@ def main() -> int:
                 if sample_seconds <= args.chunk_seconds:
                     return _salm_transcribe(audio_path)
                 with tempfile.TemporaryDirectory() as temp_dir:
-                    chunk_paths = _write_wav_chunks(audio_path, args.chunk_seconds, temp_dir)
+                    overlap_seconds = float(
+                        os.environ.get("STT_BENCH_NEMO_CHUNK_OVERLAP_SECONDS", "0")
+                    )
+                    chunk_paths = _write_wav_chunks(
+                        audio_path, args.chunk_seconds, overlap_seconds, temp_dir
+                    )
                     texts: list[str] = []
                     for chunk in chunk_paths:
                         text = _salm_transcribe(chunk)
@@ -472,25 +492,65 @@ def main() -> int:
                             texts.append(text)
                     joined = " ".join(texts).strip()
                     return joined or None
+            if args.task == "canary":
+                transcribe_kwargs = {}
+                task = os.environ.get("STT_BENCH_CANARY_TASK", "asr")
+                source_lang = os.environ.get("STT_BENCH_CANARY_SOURCE_LANG", "en")
+                target_lang = os.environ.get("STT_BENCH_CANARY_TARGET_LANG", "en")
+                pnc_env = os.environ.get("STT_BENCH_CANARY_PNC", "pnc").lower()
+                if pnc_env in {"1", "true", "yes", "y"}:
+                    pnc = "yes"
+                elif pnc_env in {"0", "false", "no", "n"}:
+                    pnc = "no"
+                else:
+                    pnc = pnc_env
+                transcribe_kwargs.update(
+                    task=task,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    pnc=pnc,
+                )
+                if args.canary_auto_chunking:
+                    outputs = model.transcribe(
+                        audio=[audio_path],
+                        batch_size=1,
+                        num_workers=0,
+                        verbose=False,
+                        **transcribe_kwargs,
+                    )
+                    return _extract_transcript(outputs)
+                if sample_seconds <= args.chunk_seconds:
+                    outputs = model.transcribe(
+                        audio=[audio_path],
+                        batch_size=1,
+                        num_workers=0,
+                        verbose=False,
+                        **transcribe_kwargs,
+                    )
+                    return _extract_transcript(outputs)
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    overlap_seconds = float(
+                        os.environ.get("STT_BENCH_NEMO_CHUNK_OVERLAP_SECONDS", "0")
+                    )
+                    chunk_paths = _write_wav_chunks(
+                        audio_path, args.chunk_seconds, overlap_seconds, temp_dir
+                    )
+                    texts: list[str] = []
+                    for chunk in chunk_paths:
+                        outputs = model.transcribe(
+                            audio=[chunk],
+                            batch_size=1,
+                            num_workers=0,
+                            verbose=False,
+                            **transcribe_kwargs,
+                        )
+                        text = _extract_transcript(outputs)
+                        if text:
+                            texts.append(text)
+                    joined = " ".join(texts).strip()
+                    return joined or None
             if sample_seconds <= args.chunk_seconds:
                 transcribe_kwargs = {}
-                if args.task == "canary":
-                    task = os.environ.get("STT_BENCH_CANARY_TASK", "asr")
-                    source_lang = os.environ.get("STT_BENCH_CANARY_SOURCE_LANG", "en")
-                    target_lang = os.environ.get("STT_BENCH_CANARY_TARGET_LANG", "en")
-                    pnc_env = os.environ.get("STT_BENCH_CANARY_PNC", "pnc").lower()
-                    if pnc_env in {"1", "true", "yes", "y"}:
-                        pnc = "yes"
-                    elif pnc_env in {"0", "false", "no", "n"}:
-                        pnc = "no"
-                    else:
-                        pnc = pnc_env
-                    transcribe_kwargs.update(
-                        task=task,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        pnc=pnc,
-                    )
                 outputs = model.transcribe(
                     audio=[audio_path],
                     batch_size=1,
@@ -500,25 +560,13 @@ def main() -> int:
                 )
                 return _extract_transcript(outputs)
             with tempfile.TemporaryDirectory() as temp_dir:
-                chunk_paths = _write_wav_chunks(audio_path, args.chunk_seconds, temp_dir)
+                overlap_seconds = float(
+                    os.environ.get("STT_BENCH_NEMO_CHUNK_OVERLAP_SECONDS", "0")
+                )
+                chunk_paths = _write_wav_chunks(
+                    audio_path, args.chunk_seconds, overlap_seconds, temp_dir
+                )
                 transcribe_kwargs = {}
-                if args.task == "canary":
-                    task = os.environ.get("STT_BENCH_CANARY_TASK", "asr")
-                    source_lang = os.environ.get("STT_BENCH_CANARY_SOURCE_LANG", "en")
-                    target_lang = os.environ.get("STT_BENCH_CANARY_TARGET_LANG", "en")
-                    pnc_env = os.environ.get("STT_BENCH_CANARY_PNC", "pnc").lower()
-                    if pnc_env in {"1", "true", "yes", "y"}:
-                        pnc = "yes"
-                    elif pnc_env in {"0", "false", "no", "n"}:
-                        pnc = "no"
-                    else:
-                        pnc = pnc_env
-                    transcribe_kwargs.update(
-                        task=task,
-                        source_lang=source_lang,
-                        target_lang=target_lang,
-                        pnc=pnc,
-                    )
                 outputs = model.transcribe(
                     audio=chunk_paths,
                     batch_size=1,

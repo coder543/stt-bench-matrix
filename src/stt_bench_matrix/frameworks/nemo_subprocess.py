@@ -49,6 +49,7 @@ def run_nemo_benchmark(
     perf_config: PerfConfig,
     warmup_sample: SampleSpec | None = None,
     chunk_seconds: float = 40.0,
+    canary_auto_chunking: bool | None = None,
 ) -> NemoRunResult:
     runner_script = _runner_script()
     if not runner_script.exists():
@@ -104,6 +105,8 @@ def run_nemo_benchmark(
         "--chunk-seconds",
         str(chunk_seconds),
     ]
+    if canary_auto_chunking:
+        cmd.append("--canary-auto-chunking")
     if warmup_sample is None:
         cmd = [arg for arg in cmd if arg not in ("--warmup-audio-path", "")]
     if perf_config.auto:
@@ -260,6 +263,8 @@ def benchmark_nemo_models(
     model_type_fn=None,
     decode_mode_fn=None,
     chunk_seconds: float | None = None,
+    chunk_seconds_fn=None,
+    canary_auto_chunking_fn=None,
     progress=None,
     on_result=None,
 ) -> list[ModelBenchmark]:
@@ -268,6 +273,13 @@ def benchmark_nemo_models(
         model_id = model_id_fn(model)
         model_type = model_type_fn(model) if model_type_fn is not None else None
         decode_mode = decode_mode_fn(model) if decode_mode_fn is not None else None
+        canary_auto_chunking = (
+            canary_auto_chunking_fn(model) if canary_auto_chunking_fn is not None else None
+        )
+        if chunk_seconds_fn is not None:
+            resolved_chunk_seconds = chunk_seconds_fn(model)
+        else:
+            resolved_chunk_seconds = chunk_seconds or 40.0
         run_result = run_nemo_benchmark(
             task=task,
             model_id=model_id,
@@ -276,7 +288,8 @@ def benchmark_nemo_models(
             sample=sample,
             perf_config=perf_config,
             warmup_sample=warmup_sample,
-            chunk_seconds=chunk_seconds or 40.0,
+            chunk_seconds=resolved_chunk_seconds,
+            canary_auto_chunking=canary_auto_chunking,
         )
         if run_result.error:
             results.append(
