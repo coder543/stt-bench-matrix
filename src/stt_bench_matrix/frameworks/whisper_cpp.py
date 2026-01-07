@@ -200,17 +200,51 @@ def benchmark_whisper_models(
                     else:
                         _ = run_once(out_base)
                 run_progress = None
-                if perf_config.runs > 1:
+                expected_runs = (
+                    perf_config.auto_min_runs if perf_config.auto else perf_config.runs
+                )
+                expected_runs = max(1, expected_runs)
+                if perf_config.auto or perf_config.runs > 1:
                     run_progress = RunProgress(
                         label=f"whisper.cpp {model.name} {model.size}",
-                        total=max(1, perf_config.runs),
+                        total=expected_runs,
                     )
-                for _ in range(perf_config.runs):
-                    elapsed, transcript = run_once(out_base)
-                    elapsed_values.append(elapsed)
-                    transcripts.append(transcript)
-                    if run_progress is not None:
-                        run_progress.update(len(elapsed_values), max(1, perf_config.runs))
+                if perf_config.auto:
+                    target_cv = max(0.0, perf_config.auto_target_cv)
+                    min_runs = max(1, perf_config.auto_min_runs)
+                    max_runs = max(min_runs, perf_config.auto_max_runs)
+                    while len(elapsed_values) < max_runs:
+                        elapsed, transcript = run_once(out_base)
+                        elapsed_values.append(elapsed)
+                        transcripts.append(transcript)
+                        current_runs = len(elapsed_values)
+                        display_target = min_runs
+                        if current_runs > display_target:
+                            display_target = current_runs
+                        if run_progress is not None:
+                            run_progress.update(current_runs, display_target)
+                        if len(elapsed_values) < min_runs:
+                            continue
+                        mean = statistics.fmean(elapsed_values)
+                        if mean <= 0:
+                            continue
+                        stdev = (
+                            statistics.stdev(elapsed_values)
+                            if len(elapsed_values) >= 2
+                            else 0.0
+                        )
+                        cv = stdev / mean if mean else 0.0
+                        if cv <= target_cv:
+                            break
+                else:
+                    for _ in range(perf_config.runs):
+                        elapsed, transcript = run_once(out_base)
+                        elapsed_values.append(elapsed)
+                        transcripts.append(transcript)
+                        if run_progress is not None:
+                            run_progress.update(
+                                len(elapsed_values), max(1, perf_config.runs)
+                            )
                 if run_progress is not None:
                     run_progress.finish()
 
