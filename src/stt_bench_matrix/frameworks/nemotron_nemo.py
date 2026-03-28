@@ -30,7 +30,7 @@ class NemotronNemoFramework:
 
 
 def _model_id(spec: ModelSpec) -> str:
-    if spec.size == "0.6b" and (spec.variant == "streaming-en" or spec.variant == "en"):
+    if spec.size == "0.6b":
         return "nvidia/nemotron-speech-streaming-en-0.6b"
     return spec.size
 

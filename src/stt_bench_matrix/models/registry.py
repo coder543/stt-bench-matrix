@@ -82,6 +82,12 @@ def gemma_models() -> list[ModelSpec]:
     ]
 
 
+def lfm_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(name="lfm2.5-audio", size="1.5b", family="lfm"),
+    ]
+
+
 def parakeet_models() -> list[ModelSpec]:
     return [
         ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),

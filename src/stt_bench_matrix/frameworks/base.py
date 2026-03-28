@@ -17,6 +17,7 @@ class FrameworkInfo:
     supports_granite: bool
     supports_nemotron: bool = False
     supports_gemma: bool = False
+    supports_lfm: bool = False
 
 
 class Framework(Protocol):

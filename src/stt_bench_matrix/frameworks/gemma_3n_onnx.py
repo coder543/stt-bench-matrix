@@ -43,7 +43,7 @@ _MODEL_IDS = {
 }
 
 _PROCESSOR_IDS = {
-    "e2b": "google/gemma-3n-E2B-it",
+    "e2b": "onnx-community/gemma-3n-E2B-it-ONNX",
     "e4b": "google/gemma-3n-E4B-it",
 }
 
@@ -164,6 +164,7 @@ def benchmark_gemma_onnx_models(
             )
             continue
 
+        device_note = default_device
         try:
             model_dir = _resolve_model_dir(model_id)
             processor_id = _processor_id(model.size)
@@ -177,7 +178,6 @@ def benchmark_gemma_onnx_models(
                 raise FileNotFoundError("missing ONNX files under onnx/")
 
             model_providers = list(default_providers)
-            device_note = default_device
             try:
                 embed_session = ort.InferenceSession(str(embed_path), providers=model_providers)
                 audio_session = ort.InferenceSession(str(audio_path), providers=model_providers)
@@ -229,7 +229,7 @@ def benchmark_gemma_onnx_models(
                 )
                 inputs = processor(
                     text=prompt,
-                    audio=audio,
+                    audio=[audio],
                     sampling_rate=sr,
                     add_special_tokens=False,
                     return_tensors="np",

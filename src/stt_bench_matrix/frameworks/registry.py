@@ -15,6 +15,7 @@ from .moonshine_transformers import MoonshineTransformersFramework
 from .granite_transformers import GraniteTransformersFramework
 from .nemotron_nemo import NemotronNemoFramework
 from .gemma_3n_onnx import Gemma3nOnnxFramework
+from .lfm_audio import LfmAudioFramework
 
 
 def all_frameworks() -> list[Framework]:
@@ -33,4 +34,5 @@ def all_frameworks() -> list[Framework]:
         NemotronNemoFramework(),
         GraniteTransformersFramework(),
         Gemma3nOnnxFramework(),
+        LfmAudioFramework(),
     ]

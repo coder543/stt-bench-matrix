@@ -2,7 +2,7 @@ FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS whisper-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
     ca-certificates \
     git \
     build-essential \
@@ -60,26 +60,24 @@ ARG TORCH_MAX_JOBS=8
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN if [ "$TORCH_SOURCE" = "1" ]; then \
-      apt-get update && apt-get install -y --no-install-recommends \
+      apt-get update && apt-get install -y --no-install-recommends --fix-missing \
         ca-certificates \
         git \
         build-essential \
         cmake \
         pkg-config \
-        software-properties-common \
         ninja-build \
         libopenblas-dev \
         libomp-dev \
         libcudnn9-dev-cuda-13 \
-        && add-apt-repository ppa:deadsnakes/ppa \
-        && apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 \
-        python3.11-venv \
-        python3.11-dev \
-        python3.11-distutils \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        python3-pip \
         && rm -rf /var/lib/apt/lists/*; \
-      python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip; \
-      python3.11 -m pip install --no-cache-dir pyyaml packaging typing_extensions numpy; \
+      python3.12 -m venv /opt/venv; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir pyyaml packaging typing_extensions numpy; \
       git clone --depth 1 --branch "$TORCH_REPO_REF" https://github.com/pytorch/pytorch /opt/pytorch; \
       cd /opt/pytorch; \
       git submodule sync --recursive; \
@@ -88,7 +86,7 @@ RUN if [ "$TORCH_SOURCE" = "1" ]; then \
       PYTORCH_BUILD_NUMBER="$TORCH_BUILD_NUMBER" \
       TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" \
       USE_CUDA=1 USE_CUDNN=1 USE_NUMPY=1 BUILD_TEST=0 MAX_JOBS="$TORCH_MAX_JOBS" \
-      /usr/bin/python3.11 setup.py bdist_wheel; \
+      /opt/venv/bin/python3.12 setup.py bdist_wheel; \
     else \
       mkdir -p /opt/pytorch/dist && touch /opt/pytorch/dist/dummy.whl; \
     fi
@@ -104,43 +102,41 @@ ENV DEBIAN_FRONTEND=noninteractive
 COPY --from=torch-builder /opt/pytorch/dist /opt/pytorch/dist
 
 RUN if [ "$TORCHAUDIO_SOURCE" = "1" ]; then \
-      apt-get update && apt-get install -y --no-install-recommends \
+      apt-get update && apt-get install -y --no-install-recommends --fix-missing \
         ca-certificates \
         git \
         build-essential \
         cmake \
         pkg-config \
-        software-properties-common \
         ninja-build \
         libopenblas-dev \
         libomp-dev \
         libcudnn9-dev-cuda-13 \
-        && add-apt-repository ppa:deadsnakes/ppa \
-        && apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 \
-        python3.11-venv \
-        python3.11-dev \
-        python3.11-distutils \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        python3-pip \
         && rm -rf /var/lib/apt/lists/*; \
-      python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip; \
-      python3.11 -m pip install --no-cache-dir numpy pyyaml typing_extensions; \
+      python3.12 -m venv /opt/venv; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir numpy pyyaml typing_extensions; \
       torch_wheel="$(ls /opt/pytorch/dist/torch-*.whl | head -n 1)"; \
       if [ -z "$torch_wheel" ]; then \
         echo "Torch wheel not found in /opt/pytorch/dist" >&2; \
         exit 1; \
       fi; \
-      python3.11 -m pip install --no-deps "$torch_wheel"; \
+      /opt/venv/bin/python3.12 -m pip install --no-deps "$torch_wheel"; \
       git clone --depth 1 --branch "$TORCHAUDIO_REPO_REF" https://github.com/pytorch/audio /opt/torchaudio; \
       cd /opt/torchaudio; \
       TORCH_CUDA_ARCH_LIST="$TORCH_CUDA_ARCH_LIST" \
-      USE_CUDA=1 BUILD_SOX=0 BUILD_KALDI=0 /usr/bin/python3.11 setup.py bdist_wheel; \
+      USE_CUDA=1 BUILD_SOX=0 BUILD_KALDI=0 /opt/venv/bin/python3.12 setup.py bdist_wheel; \
     else \
       mkdir -p /opt/torchaudio/dist && touch /opt/torchaudio/dist/dummy.whl; \
     fi
 
 FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS ctranslate2-builder
 
-ARG CTRANSLATE2_SOURCE=0
+ARG CTRANSLATE2_SOURCE=1
 ARG CTRANSLATE2_REPO_REF=v4.6.2
 ARG CTRANSLATE2_CUDA_ARCH=
 ARG CTRANSLATE2_CUDA_ARCH_LIST=9.0+PTX
@@ -149,25 +145,23 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN if [ "$CTRANSLATE2_SOURCE" = "1" ]; then \
       set -e; \
-      apt-get update && apt-get install -y --no-install-recommends \
+      apt-get update && apt-get install -y --no-install-recommends --fix-missing \
         ca-certificates \
         git \
         build-essential \
         cmake \
         pkg-config \
         ninja-build \
-        software-properties-common \
         libopenblas-dev \
         libcudnn9-dev-cuda-13 \
-        && add-apt-repository ppa:deadsnakes/ppa \
-        && apt-get update && apt-get install -y --no-install-recommends \
-        python3.11 \
-        python3.11-venv \
-        python3.11-dev \
-        python3.11-distutils \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        python3-pip \
         && rm -rf /var/lib/apt/lists/*; \
-      python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip; \
-      python3.11 -m pip install --no-cache-dir numpy pybind11; \
+      python3.12 -m venv /opt/venv; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir numpy pybind11; \
       git clone --depth 1 --branch "$CTRANSLATE2_REPO_REF" https://github.com/OpenNMT/CTranslate2 /opt/ctranslate2; \
       cd /opt/ctranslate2; \
       git submodule update --init --recursive; \
@@ -215,10 +209,181 @@ RUN if [ "$CTRANSLATE2_SOURCE" = "1" ]; then \
       CTRANSLATE2_ROOT=/opt/ctranslate2/install \
       LIBRARY_PATH=/opt/ctranslate2/install/lib \
       LD_LIBRARY_PATH=/opt/ctranslate2/install/lib \
-      python3.11 -m pip wheel . -w /opt/ctranslate2/dist --no-build-isolation; \
+      /opt/venv/bin/python3.12 -m pip wheel . -w /opt/ctranslate2/dist --no-build-isolation; \
     else \
       mkdir -p /opt/ctranslate2/dist /opt/ctranslate2/install/lib; \
       touch /opt/ctranslate2/dist/dummy.whl; \
+    fi
+
+FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS torchcodec-builder
+
+ARG TORCHCODEC_SOURCE=1
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+COPY --from=torch-builder /opt/pytorch/dist /opt/pytorch/dist
+
+RUN if [ "$TORCHCODEC_SOURCE" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends --fix-missing \
+        ca-certificates \
+        git \
+        build-essential \
+        cmake \
+        pkg-config \
+        ninja-build \
+        pybind11-dev \
+        libavcodec-dev \
+        libavformat-dev \
+        libavutil-dev \
+        libavdevice-dev \
+        libavfilter-dev \
+        libswresample-dev \
+        libswscale-dev \
+        libcudnn9-cuda-13 \
+        libopenblas0 \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        python3-pip \
+        && rm -rf /var/lib/apt/lists/*; \
+      python3.12 -m venv /opt/venv; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir pybind11; \
+      torch_wheel="$(ls /opt/pytorch/dist/torch-*.whl | head -n 1 2>/dev/null || true)"; \
+      if [ -z "$torch_wheel" ]; then \
+        echo "Torch wheel not found in /opt/pytorch/dist, falling back to PyPI torch for torchcodec build" >&2; \
+        /opt/venv/bin/python3.12 -m pip install --no-cache-dir torch; \
+      else \
+        /opt/venv/bin/python3.12 -m pip install --no-deps "$torch_wheel"; \
+      fi; \
+      git clone --depth 1 --branch v0.9.1 https://github.com/meta-pytorch/torchcodec /opt/torchcodec; \
+      cd /opt/torchcodec; \
+      CMAKE_PREFIX_PATH="$$(/opt/venv/bin/python3.12 -m pybind11 --cmakedir)" \
+      I_CONFIRM_THIS_IS_NOT_A_LICENSE_VIOLATION=1 \
+      /opt/venv/bin/python3.12 -m pip wheel --no-deps --no-build-isolation -w /opt/torchcodec/dist .; \
+    else \
+      mkdir -p /opt/torchcodec/dist && touch /opt/torchcodec/dist/dummy.whl; \
+    fi
+
+FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS onnxruntime-builder
+
+ARG ONNXRUNTIME_GPU=0
+ARG ONNXRUNTIME_REPO_REF=v1.23.2
+ARG ONNXRUNTIME_CUDA_ARCH_LIST="120;121"
+ARG ONNXRUNTIME_BUILD_JOBS=8
+ARG ONNXRUNTIME_DISABLE_CONTRIB_OPS=0
+ARG ONNXRUNTIME_DISABLE_FLASH_ATTENTION=1
+ARG ONNXRUNTIME_DISABLE_MEMORY_EFFICIENT_ATTENTION=1
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN if [ "$ONNXRUNTIME_GPU" = "1" ]; then \
+      set -e; \
+      apt-get update && apt-get install -y --no-install-recommends --fix-missing \
+        ca-certificates \
+        git \
+        build-essential \
+        cmake \
+        ninja-build \
+        pkg-config \
+        python3.12 \
+        python3.12-venv \
+        python3.12-dev \
+        python3-pip \
+        cuda-cccl-13-1 \
+        libprotobuf-dev \
+        protobuf-compiler \
+        libssl-dev \
+        libffi-dev \
+        libopenblas-dev \
+        libcudnn9-dev-cuda-13 \
+        && rm -rf /var/lib/apt/lists/*; \
+      cuda_target_dir=""; \
+      if [ -d /usr/local/cuda/targets/sbsa-linux ]; then \
+        cuda_target_dir="sbsa-linux"; \
+      elif [ -d /usr/local/cuda/targets/aarch64-linux ]; then \
+        cuda_target_dir="aarch64-linux"; \
+      elif [ -d /usr/local/cuda/targets/x86_64-linux ]; then \
+        cuda_target_dir="x86_64-linux"; \
+      fi; \
+      if [ -n "$cuda_target_dir" ]; then \
+        cuda_cccl_dir="/usr/local/cuda/targets/$cuda_target_dir/include/cccl/cuda"; \
+        cuda_std_link="/usr/local/cuda/targets/$cuda_target_dir/include/cuda"; \
+        if [ -d "$cuda_cccl_dir" ] && [ ! -e "$cuda_std_link" ]; then \
+          ln -s "$cuda_cccl_dir" "$cuda_std_link"; \
+        fi; \
+      fi; \
+      python3.12 -m venv /opt/venv; \
+      /opt/venv/bin/python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel; \
+      git clone --depth 1 --branch "$ONNXRUNTIME_REPO_REF" https://github.com/microsoft/onnxruntime /opt/onnxruntime; \
+      cd /opt/onnxruntime; \
+      git submodule update --init --recursive; \
+      req_file=""; \
+      for cand in \
+        tools/ci_build/requirements/requirements.txt \
+        tools/ci_build/requirements/requirements-dev.txt \
+        tools/ci_build/requirements/requirements-build.txt \
+        tools/ci_build/requirements/linux/python/requirements.txt; \
+      do \
+        if [ -f "$cand" ]; then req_file="$cand"; break; fi; \
+      done; \
+      if [ -n "$req_file" ]; then \
+        /opt/venv/bin/python3.12 -m pip install --no-cache-dir -r "$req_file"; \
+      else \
+        /opt/venv/bin/python3.12 -m pip install --no-cache-dir \
+          numpy \
+          sympy \
+          packaging \
+          protobuf \
+          typing_extensions \
+          pybind11 \
+          flatbuffers \
+          onnx \
+          psutil; \
+      fi; \
+      cmake_defines="CMAKE_CUDA_ARCHITECTURES=$ONNXRUNTIME_CUDA_ARCH_LIST"; \
+      flash_args=""; \
+      if [ "$ONNXRUNTIME_DISABLE_FLASH_ATTENTION" = "1" ]; then \
+        flash_args="--cmake_extra_defines onnxruntime_USE_FLASH_ATTENTION=OFF"; \
+      fi; \
+      mem_efficient_args=""; \
+      if [ "$ONNXRUNTIME_DISABLE_MEMORY_EFFICIENT_ATTENTION" = "1" ]; then \
+        mem_efficient_args="--cmake_extra_defines onnxruntime_USE_MEMORY_EFFICIENT_ATTENTION=OFF"; \
+      fi; \
+      build_args=""; \
+      if [ "$ONNXRUNTIME_DISABLE_CONTRIB_OPS" = "1" ]; then \
+        build_args="$build_args --disable_contrib_ops"; \
+      fi; \
+      if ! /opt/venv/bin/python3.12 tools/ci_build/build.py \
+        --config Release \
+        --build_wheel \
+        --skip_tests \
+        --parallel "$ONNXRUNTIME_BUILD_JOBS" \
+        --use_cuda \
+        --compile_no_warning_as_error \
+        $build_args \
+        --allow_running_as_root \
+        --cuda_home /usr/local/cuda \
+        --cudnn_home /usr/lib/aarch64-linux-gnu \
+        --cmake_generator Ninja \
+        --cmake_extra_defines "$cmake_defines" \
+        $flash_args \
+        $mem_efficient_args \
+        --build_dir /opt/onnxruntime/build; then \
+        echo "onnxruntime build failed; dumping cmake logs" >&2; \
+        find /opt/onnxruntime/build -type f -name 'CMakeError.log' -print -exec tail -n 200 {} \; || true; \
+        find /opt/onnxruntime/build -type f -name 'CMakeOutput.log' -print -exec tail -n 200 {} \; || true; \
+        exit 1; \
+      fi; \
+      mkdir -p /opt/onnxruntime/dist; \
+      wheel_path="$(find /opt/onnxruntime/build -type f -name 'onnxruntime_gpu-*.whl' | head -n 1)"; \
+      if [ -z "$wheel_path" ]; then \
+        echo "onnxruntime-gpu wheel not found in build output" >&2; \
+        exit 1; \
+      fi; \
+      cp -a "$wheel_path" /opt/onnxruntime/dist/; \
+    else \
+      mkdir -p /opt/onnxruntime/dist && touch /opt/onnxruntime/dist/dummy.whl; \
     fi
 
 FROM nvidia/cuda:13.1.0-runtime-ubuntu24.04
@@ -227,15 +392,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV STT_BENCH_GIT_REV=unknown
 ENV STT_BENCH_GIT_SHA=unknown
 ENV STT_BENCH_GIT_DIRTY=unknown
-ENV UV_PYTHON=/usr/bin/python3.11
+ENV UV_PYTHON=/usr/bin/python3.12
 ENV UV_NO_SYNC=1
 
 ARG TORCH_SOURCE=0
 ARG TORCHAUDIO_SOURCE=0
-ARG CTRANSLATE2_SOURCE=0
+ARG CTRANSLATE2_SOURCE=1
+ARG ONNXRUNTIME_GPU=0
+ARG NEMO_RUNNER_SETUP=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
+RUN apt-get update && apt-get install -y --no-install-recommends --fix-missing \
     ca-certificates \
     git \
     build-essential \
@@ -248,16 +414,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcudnn9-cuda-13 \
     ffmpeg \
     libsndfile1 \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-venv \
-    python3.11-dev \
-    python3.11-distutils \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3.11 -m ensurepip && python3.11 -m pip install --no-cache-dir --upgrade pip
-RUN python3.11 -m pip install --no-cache-dir uv
+RUN python3.12 -m pip install --no-cache-dir uv --break-system-packages
 RUN git config --global --add safe.directory /workspace
 
 COPY --from=whisper-builder /opt/whisper.cpp/build/bin/whisper-cli /opt/whisper.cpp/build/bin/whisper-cli
@@ -267,12 +430,22 @@ COPY --from=torch-builder /opt/pytorch/dist /opt/pytorch/dist
 COPY --from=torchaudio-builder /opt/torchaudio/dist /opt/torchaudio/dist
 COPY --from=ctranslate2-builder /opt/ctranslate2/dist /opt/ctranslate2/dist
 COPY --from=ctranslate2-builder /opt/ctranslate2/install/lib /opt/ctranslate2/install/lib
+COPY --from=torchcodec-builder /opt/torchcodec/dist /opt/torchcodec/dist
+COPY --from=onnxruntime-builder /opt/onnxruntime/dist /opt/onnxruntime/dist
+
+RUN mkdir -p /opt/wheels \
+    && cp -a /opt/pytorch/dist/*.whl /opt/wheels/ 2>/dev/null || true \
+    && cp -a /opt/torchaudio/dist/*.whl /opt/wheels/ 2>/dev/null || true \
+    && cp -a /opt/ctranslate2/dist/*.whl /opt/wheels/ 2>/dev/null || true \
+    && cp -a /opt/torchcodec/dist/*.whl /opt/wheels/ 2>/dev/null || true \
+    && cp -a /opt/onnxruntime/dist/*.whl /opt/wheels/ 2>/dev/null || true
 
 ENV PATH="/opt/whisper.cpp/build/bin:${PATH}"
 ENV HF_HOME="/workspace/.cache/huggingface"
 ENV UV_CACHE_DIR="/workspace/.cache/uv"
 ENV XDG_CACHE_HOME="/workspace/.cache"
-ENV LD_LIBRARY_PATH="/workspace/.venv/lib/python3.11/site-packages/nvidia/cudnn/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cublas/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusparse/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cusolver/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cufft/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/cuda_runtime/lib:/workspace/.venv/lib/python3.11/site-packages/nvidia/nccl/lib:/opt/whisper.cpp/build/src:/opt/whisper.cpp/build/ggml/src:/opt/whisper.cpp/build/ggml/src/ggml-cuda:${LD_LIBRARY_PATH}"
+ENV UV_FIND_LINKS="/opt/wheels"
+ENV LD_LIBRARY_PATH="/workspace/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/workspace/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:/workspace/.venv/lib/python3.12/site-packages/nvidia/cusparse/lib:/workspace/.venv/lib/python3.12/site-packages/nvidia/cusolver/lib:/workspace/.venv/lib/python3.12/site-packages/nvidia/cufft/lib:/workspace/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/workspace/.venv/lib/python3.12/site-packages/nvidia/nccl/lib:/opt/whisper.cpp/build/src:/opt/whisper.cpp/build/ggml/src:/opt/whisper.cpp/build/ggml/src/ggml-cuda:${LD_LIBRARY_PATH}"
 
 WORKDIR /workspace
 COPY . .
@@ -288,7 +461,10 @@ RUN if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
       printf "export STT_BENCH_GIT_DIRTY=%s\\n" "$dirty" >> /etc/stt-bench-git.env; \
     fi
 
-RUN uv sync
+RUN uv venv
+RUN uv export --format requirements.txt --no-hashes -o /tmp/requirements.txt
+RUN UV_PYTHON=/workspace/.venv/bin/python uv pip install --find-links /opt/wheels -r /tmp/requirements.txt
+RUN UV_PYTHON=/workspace/.venv/bin/python uv pip install -e .
 
 RUN if [ "$TORCH_SOURCE" = "1" ]; then \
       wheel="$(ls /opt/pytorch/dist/torch-*.whl | head -n 1)"; \
@@ -316,7 +492,29 @@ RUN if [ "$CTRANSLATE2_SOURCE" = "1" ]; then \
       fi; \
       UV_PYTHON=/workspace/.venv/bin/python uv pip install --no-deps "$wheel"; \
       if ls /opt/ctranslate2/install/lib/libctranslate2.so* >/dev/null 2>&1; then \
-        cp -a /opt/ctranslate2/install/lib/libctranslate2.so* /usr/lib/aarch64-linux-gnu/; \
+        cp -a /opt/ctranslate2/install/lib/libctranslate2.so* /usr/local/lib/; \
+        ln -sf /usr/local/lib/libctranslate2.so.4.6.2 /usr/local/lib/libctranslate2.so.4; \
+        ln -sf /usr/local/lib/libctranslate2.so.4.6.2 /usr/local/lib/libctranslate2.so; \
+        ldconfig; \
+      fi; \
+    fi
+
+RUN if [ "$ONNXRUNTIME_GPU" = "1" ]; then \
+      wheel="$(ls /opt/onnxruntime/dist/onnxruntime_gpu-*.whl | head -n 1)"; \
+      if [ -z "$wheel" ]; then \
+        echo "onnxruntime-gpu wheel not found in /opt/onnxruntime/dist" >&2; \
+        exit 1; \
+      fi; \
+      UV_PYTHON=/workspace/.venv/bin/python uv pip install --no-deps "$wheel"; \
+    fi
+
+RUN if [ "$NEMO_RUNNER_SETUP" = "1" ]; then \
+      UV_NO_SYNC=0 uv venv --project tools/nemo_runner; \
+      NEMO_RUNNER_PY="/workspace/tools/nemo_runner/.venv/bin/python"; \
+      UV_PYTHON="$NEMO_RUNNER_PY" UV_NO_SYNC=0 uv sync --project tools/nemo_runner; \
+      torch_wheel="$(ls /opt/pytorch/dist/torch-*.whl | head -n 1 2>/dev/null || true)"; \
+      if [ -n "$torch_wheel" ]; then \
+        UV_PYTHON="$NEMO_RUNNER_PY" UV_NO_SYNC=0 uv pip install --project tools/nemo_runner --no-deps "$torch_wheel"; \
       fi; \
     fi
 

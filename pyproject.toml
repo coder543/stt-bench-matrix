@@ -7,12 +7,12 @@ name = "stt-bench-matrix"
 version = "0.1.0"
 description = "Cross-platform STT benchmarking tool"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "stt-bench-matrix contributors" }]
 dependencies = [
-  "mlx-whisper",
-  "lightning-whisper-mlx",
+  "mlx-whisper; platform_system == \"Darwin\"",
+  "lightning-whisper-mlx; platform_system == \"Darwin\"",
   "pyperf",
   "huggingface-hub",
   "transformers>=4.57.1",
@@ -23,6 +23,7 @@ dependencies = [
   "peft",
   "soundfile",
   "torchaudio",
+  "liquid-audio; python_version >= '3.12'",
 ]
 
 [project.scripts]
