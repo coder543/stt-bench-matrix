@@ -18,6 +18,7 @@ class FrameworkInfo:
     supports_nemotron: bool = False
     supports_gemma: bool = False
     supports_lfm: bool = False
+    supports_cohere: bool = False
 
 
 class Framework(Protocol):

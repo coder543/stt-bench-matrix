@@ -15,14 +15,14 @@ dependencies = [
   "lightning-whisper-mlx; platform_system == \"Darwin\"",
   "pyperf",
   "huggingface-hub",
-  "transformers>=4.57.1",
-  "torch",
+  "transformers>=5.4.0",
+  "torch>=2.11.0",
   "librosa",
   "faster-whisper",
   "whisperx",
   "peft",
   "soundfile",
-  "torchaudio",
+  "torchaudio>=2.11.0",
   "liquid-audio; python_version >= '3.12'",
 ]
 

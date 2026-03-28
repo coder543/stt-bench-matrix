@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Callable
+import os
+from typing import Any, Callable
 import wave
 
 import numpy as np
@@ -16,30 +16,38 @@ from ..platforms.cuda import cuda_is_usable
 from .base import FrameworkInfo
 
 
+DEFAULT_MODEL_ID = "CohereLabs/cohere-transcribe-03-2026"
+DEFAULT_LANGUAGE = os.environ.get("COHERE_LANGUAGE", "en")
+DEFAULT_MAX_NEW_TOKENS = int(os.environ.get("STT_BENCH_COHERE_MAX_NEW_TOKENS", "256"))
+FORCE_MATH_SDP = os.environ.get("STT_BENCH_COHERE_FORCE_MATH_SDP", "0").lower() not in {
+    "0",
+    "false",
+    "no",
+    "n",
+}
+
+
 @dataclass(frozen=True)
-class ParakeetTransformersFramework:
+class CohereTransformersFramework:
     info: FrameworkInfo = FrameworkInfo(
-        name="parakeet-transformers",
-        description="NVIDIA Parakeet via Transformers AutoModelForCTC",
+        name="cohere-transformers",
+        description="Cohere Transcribe via Transformers",
         supports_whisper=False,
-        supports_parakeet=True,
+        supports_parakeet=False,
         supports_canary=False,
         supports_moonshine=False,
         supports_granite=False,
+        supports_cohere=True,
     )
 
     def is_supported(self, host: HostInfo) -> bool:
         return host.is_macos or host.is_linux
 
 
-def _model_id(spec: ModelSpec) -> str:
-    if spec.name != "parakeet-ctc":
-        raise ValueError("parakeet transformers only supports CTC models")
-    if spec.size == "1.1b":
-        return "nvidia/parakeet-ctc-1.1b"
-    if spec.size == "0.6b":
-        return "nvidia/parakeet-ctc-0.6b"
-    return f"nvidia/parakeet-ctc-{spec.size}"
+def _model_id(model: ModelSpec) -> str:
+    if model.name != "cohere-transcribe":
+        raise ValueError("cohere framework only supports cohere-transcribe models")
+    return os.environ.get("COHERE_MODEL_ID", DEFAULT_MODEL_ID)
 
 
 def _load_wav_16k_mono(path: str) -> np.ndarray:
@@ -53,20 +61,32 @@ def _load_wav_16k_mono(path: str) -> np.ndarray:
     return audio
 
 
-def benchmark_parakeet_models(
+def _normalize_text(decoded: object) -> str:
+    if isinstance(decoded, str):
+        return decoded.strip()
+    if isinstance(decoded, list):
+        cleaned = [str(item).strip() for item in decoded if str(item).strip()]
+        if len(cleaned) == 1:
+            return cleaned[0]
+        return "\n\n".join(cleaned).strip()
+    return str(decoded or "").strip()
+
+
+def benchmark_cohere_models(
     sample: SampleSpec,
     models: list[ModelSpec],
     perf_config: PerfConfig,
+    language: str,
     warmup_sample: SampleSpec | None = None,
     progress: Callable[[str], None] | None = None,
     on_result: Callable[[ModelBenchmark], None] | None = None,
 ) -> list[ModelBenchmark]:
-    supported_models = [model for model in models if model.name == "parakeet-ctc"]
-    if not supported_models:
+    if not models:
         return []
     try:
         import torch
-        from transformers import AutoModelForCTC, AutoProcessor
+        from transformers import AutoProcessor
+        from transformers.models.cohere_asr import CohereAsrForConditionalGeneration
     except Exception as exc:  # noqa: BLE001
         return [
             ModelBenchmark(
@@ -78,7 +98,7 @@ def benchmark_parakeet_models(
                 rtfx_stdev=None,
                 bench_seconds=None,
                 device=None,
-                notes=f"parakeet transformers unavailable: {exc}",
+                notes=f"cohere unavailable: {exc}",
                 transcript=None,
                 wer=None,
                 wer_stdev=None,
@@ -111,124 +131,78 @@ def benchmark_parakeet_models(
 
     results: list[ModelBenchmark] = []
 
-    def _disable_sdp_flash() -> bool:
-        try:
-            torch.backends.cuda.enable_flash_sdp(False)
-            torch.backends.cuda.enable_mem_efficient_sdp(False)
-            torch.backends.cuda.enable_math_sdp(True)
-            return True
-        except Exception:
-            return False
-
-    def _is_flash_attention_error(exc: Exception) -> bool:
-        msg = str(exc)
-        if not msg:
-            return False
-        needles = (
-            "fmha_cutlass",
-            "sm80-sm100",
-            "flash attention",
-            "flash_attn",
-            "flash_sdp",
-        )
-        lower = msg.lower()
-        return any(needle in lower or needle in msg for needle in needles)
-
-    for model in supported_models:
+    for model in models:
         model_id = _model_id(model)
         try:
             processor = AutoProcessor.from_pretrained(model_id)
-            sdp_fallback = False
             try:
-                asr_model = AutoModelForCTC.from_pretrained(
-                    model_id, dtype=dtype
+                asr_model = CohereAsrForConditionalGeneration.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype,
                 ).to(device)
             except Exception:  # noqa: BLE001
                 device = torch.device("cpu")
                 dtype = torch.float32
                 device_note = "cpu"
-                asr_model = AutoModelForCTC.from_pretrained(
-                    model_id, dtype=dtype
+                asr_model = CohereAsrForConditionalGeneration.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype,
                 ).to(device)
             asr_model.eval()
-            last_transcript: str | None = None
-            sampling_rate = processor.feature_extractor.sampling_rate
-            hop_length = processor.feature_extractor.hop_length
-            max_len = None
-            encoder = getattr(asr_model, "encoder", None)
-            encoder_config = getattr(encoder, "config", None)
-            if encoder_config is not None:
-                max_len = getattr(encoder_config, "max_position_embeddings", None)
-            if max_len is None:
-                for attr in (
-                    "max_position_embeddings",
-                    "max_source_positions",
-                    "max_input_length",
-                    "max_sequence_length",
-                ):
-                    max_len = getattr(asr_model.config, attr, None)
-                    if max_len is not None:
-                        break
-            max_samples = None
-            if max_len is not None and hop_length:
-                max_samples = int(max_len * hop_length)
-
-            def run_segment(segment: np.ndarray) -> list[str]:
-                nonlocal sdp_fallback
-                inputs = processor(
-                    segment,
-                    sampling_rate=sampling_rate,
-                    return_tensors="pt",
-                    padding="longest",
-                )
-                inputs = inputs.to(device=device, dtype=dtype)
-                sdp_cm = nullcontext()
-                with torch.inference_mode(), sdp_cm:
-                    try:
-                        logits = asr_model(**inputs).logits
-                    except RuntimeError as exc:
-                        if (
-                            prefer_cuda
-                            and not sdp_fallback
-                            and _is_flash_attention_error(exc)
-                            and _disable_sdp_flash()
-                        ):
-                            sdp_fallback = True
-                            logits = asr_model(**inputs).logits
-                        else:
-                            raise
-                    predicted_ids = torch.argmax(logits, dim=-1)
-                return processor.batch_decode(predicted_ids, skip_special_tokens=True)
+            sdp_note = None
+            if prefer_cuda and FORCE_MATH_SDP:
+                try:
+                    torch.backends.cuda.enable_flash_sdp(False)
+                    torch.backends.cuda.enable_mem_efficient_sdp(False)
+                    torch.backends.cuda.enable_math_sdp(True)
+                    sdp_note = "sdp: math"
+                except Exception:
+                    sdp_note = None
 
             def run_once(audio_input=audio) -> str | None:
-                if max_samples is not None and audio_input.shape[0] > max_samples:
-                    decoded = []
-                    for start in range(0, audio_input.shape[0], max_samples):
-                        end = start + max_samples
-                        segment = audio_input[start:end]
-                        decoded.extend(run_segment(segment))
-                    return " ".join(text.strip() for text in decoded if text).strip() or None
-                else:
-                    decoded = run_segment(audio_input)
-                    return " ".join(text.strip() for text in decoded if text).strip() or None
+                inputs = processor(
+                    audio=audio_input,
+                    sampling_rate=16000,
+                    return_tensors="pt",
+                    language=(language or DEFAULT_LANGUAGE).strip() or DEFAULT_LANGUAGE,
+                    punctuation=True,
+                )
+                audio_chunk_index = inputs.get("audio_chunk_index")
+                for key, value in list(inputs.items()):
+                    if not torch.is_tensor(value):
+                        continue
+                    if torch.is_floating_point(value):
+                        inputs[key] = value.to(device=device, dtype=dtype)
+                    else:
+                        inputs[key] = value.to(device=device)
+                with torch.inference_mode():
+                    outputs = asr_model.generate(
+                        **inputs,
+                        max_new_tokens=DEFAULT_MAX_NEW_TOKENS,
+                    )
+                decoded = processor.decode(
+                    outputs,
+                    skip_special_tokens=True,
+                    audio_chunk_index=audio_chunk_index,
+                    language=(language or DEFAULT_LANGUAGE).strip() or DEFAULT_LANGUAGE,
+                )
+                text = _normalize_text(decoded)
+                return text or None
 
             warmup_run_once = None
             if warmup_audio is not None:
                 warmup_run_once = lambda: run_once(warmup_audio)
             stats = measure_rtfx(
-                name=f"parakeet:{model.size}",
+                name=f"cohere:{model.size}",
                 sample=sample,
                 run_once=run_once,
                 warmup_run_once=warmup_run_once,
                 config=perf_config,
-                progress_label=f"parakeet {model.name} {model.size}",
+                progress_label=f"cohere {model.name} {model.size}",
             )
-            note_parts: list[str] = []
-            if sdp_fallback:
-                note_parts.append("sdp: math (flash fallback)")
-            last_transcript = (
-                stats.transcripts[-1] if stats.transcripts else None
-            )
+            note_parts = [f"max_new_tokens:{DEFAULT_MAX_NEW_TOKENS}"]
+            if sdp_note is not None:
+                note_parts.append(sdp_note)
             results.append(
                 ModelBenchmark(
                     model_name=model.name,
@@ -239,8 +213,8 @@ def benchmark_parakeet_models(
                     rtfx_stdev=stats.rtfx_stdev,
                     bench_seconds=stats.wall_seconds,
                     device=device_note,
-                    notes="; ".join(note_parts) if note_parts else None,
-                    transcript=last_transcript,
+                    notes="; ".join(note_parts),
+                    transcript=stats.transcripts[-1] if stats.transcripts else None,
                     wer=None,
                     wer_stdev=None,
                     runs=[
@@ -261,7 +235,7 @@ def benchmark_parakeet_models(
             if on_result is not None:
                 on_result(results[-1])
         except Exception as exc:  # noqa: BLE001
-            note = f"parakeet failed: {type(exc).__name__}: {exc}"
+            note = f"cohere failed: {type(exc).__name__}: {exc}"
             if cuda_err and torch.cuda.is_available():
                 note = f"{note}; cuda unavailable: {cuda_err}"
             results.append(
@@ -284,6 +258,6 @@ def benchmark_parakeet_models(
             if on_result is not None:
                 on_result(results[-1])
         if progress is not None:
-            progress(f"parakeet {model.name} {model.size}")
+            progress(f"cohere {model.name} {model.size}")
 
     return results

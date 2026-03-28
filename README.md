@@ -22,6 +22,7 @@ The goal is to run on **macOS or Linux**, across **Apple Silicon / NVIDIA / AMD*
 - **NVIDIA Parakeet** — CTC, RNNT, TDT, TDT-CTC (110M), realtime-EOU
 - **NVIDIA Canary** — 180m-flash, 1b-flash, 1b-v2 (optional: qwen-2.5b SALM)
 - **Moonshine** — tiny, base
+- **Cohere Transcribe** — 03-2026
 - **Nemotron Speech Streaming** — 0.6b
 - **Granite Speech 3.3** — 2b (optional heavy: 8b)
 - **Gemma 3n** — e2b, e4b (heavy, ONNX runtime)
@@ -78,15 +79,12 @@ Build:
 docker build -f Dockerfile.cuda -t stt-bench-matrix:cuda13-bw .
 ```
 
-Build (DGX Spark / Blackwell, source torch + torchaudio + CTranslate2):
+Build (optional source CTranslate2 / other native deps):
 
 ```bash
 docker build -f Dockerfile.cuda -t stt-bench-matrix:cuda13-bw \
-  --build-arg TORCH_SOURCE=1 \
-  --build-arg TORCHAUDIO_SOURCE=1 \
   --build-arg CTRANSLATE2_SOURCE=1 \
-  --build-arg TORCH_CUDA_ARCH_LIST=12.1+PTX \
-  --build-arg TORCH_MAX_JOBS=8 .
+  .
 ```
 
 Run (persists caches and writes output):
@@ -107,7 +105,9 @@ docker run --rm --gpus all --user "$(id -u):$(id -g)" \
 - Model caching should be **transparent** and **stable**, with a single cache directory per framework.
 - The tool should degrade gracefully: if a framework isn’t supported on a machine, it should be skipped with a clear reason.
 - This repo targets Python **3.12+** (some optional frameworks, like LiquidAI LFM2.5 Audio, require it).
-- DGX Spark (arm64 Blackwell) currently requires **source-built CUDA torch/torchaudio**; use `Dockerfile.cuda` with `--build-arg TORCH_SOURCE=1 --build-arg TORCHAUDIO_SOURCE=1` to enable GPU for transformers-based runs.
+- Official PyTorch 2.11 CUDA wheels are now sufficient for the CUDA transformer paths here; custom Torch/Torchaudio wheel overrides are no longer required for standard runs.
+- NeMo on bare-metal Linux still depends on the host CUDA/cuDNN runtime matching the official Torch 2.11 cu13 stack. If you hit `CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`, install system cuDNN 13 runtime libraries (for example `libcudnn9-cuda-13`) or use `Dockerfile.cuda`, which already includes the matching runtime.
+- Cohere Transcribe runs via `cohere-transformers` against `CohereLabs/cohere-transcribe-03-2026` by default. Override with `COHERE_MODEL_ID`, adjust decode length with `STT_BENCH_COHERE_MAX_NEW_TOKENS`, and force math SDPA only if needed with `STT_BENCH_COHERE_FORCE_MATH_SDP=1`.
 - Parakeet realtime EOU is a **streaming/EOU model**; offline WER on the full sample can look very poor even when GPU is working. Use it for latency/RTFx comparisons or stream-style evaluation rather than comparing WER directly.
 - Canary Qwen 2.5B is a SALM model; it requires NeMo with SpeechLM2 support and uses a prompt + audio input path instead of `transcribe()`.
 - Nemotron Speech Streaming 0.6B uses NeMo ASRModel with cache-aware streaming; the benchmark uses offline `transcribe()` by default, but you can set `STT_BENCH_NEMO_ATT_CONTEXT_SIZE="70,13"` to emulate a streaming chunk size when supported.

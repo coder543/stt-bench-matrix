@@ -53,6 +53,16 @@ def moonshine_models() -> list[ModelSpec]:
     ]
 
 
+def cohere_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(
+            name="cohere-transcribe",
+            size="03-2026",
+            family="cohere",
+        ),
+    ]
+
+
 def nemotron_models() -> list[ModelSpec]:
     return [
         ModelSpec(

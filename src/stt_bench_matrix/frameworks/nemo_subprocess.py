@@ -39,6 +39,20 @@ def _runner_script() -> Path:
     return _runner_dir() / "run.py"
 
 
+def _format_runner_error(raw_error: str) -> str:
+    error = " ".join(raw_error.splitlines())
+    if "CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH" in raw_error:
+        error = (
+            "nemo runner hit CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH; "
+            "the local CUDA/cuDNN runtime does not match the official Torch 2.11 "
+            "cu13 stack. Install system cuDNN 13 runtime libraries or run via "
+            "Dockerfile.cuda."
+        )
+    if len(error) > 400:
+        error = f"{error[:400]}…"
+    return error
+
+
 def run_nemo_benchmark(
     *,
     task: str,
@@ -70,11 +84,6 @@ def run_nemo_benchmark(
     runner_python = _runner_dir() / ".venv" / "bin" / "python"
     if runner_python.exists():
         env["UV_PYTHON"] = str(runner_python)
-    torch_wheel_dir = Path("/opt/pytorch/dist")
-    if torch_wheel_dir.exists():
-        existing_links = env.get("UV_FIND_LINKS")
-        if not existing_links:
-            env["UV_FIND_LINKS"] = str(torch_wheel_dir)
     chunk_override = env.get("STT_BENCH_NEMO_CHUNK_SECONDS")
     chunk_seconds = float(chunk_override) if chunk_override else chunk_seconds
     cmd = [
@@ -131,47 +140,7 @@ def run_nemo_benchmark(
         )
         if sync_proc.returncode != 0:
             raw_error = sync_proc.stderr.strip() or sync_proc.stdout.strip() or "nemo runner sync failed"
-            error = " ".join(raw_error.splitlines())
-            if len(error) > 400:
-                error = f"{error[:400]}…"
-            return NemoRunResult(
-                rtfx_mean=None,
-                rtfx_stdev=None,
-                wall_seconds=None,
-                device=None,
-                decode=None,
-                precision=None,
-                transcript=None,
-                elapsed_values=[],
-                transcripts=[],
-                error=error,
-            )
-    torch_wheel = next(torch_wheel_dir.glob("torch-*.whl"), None)
-    if torch_wheel is not None:
-        install_cmd = [
-            "uv",
-            "pip",
-            "install",
-            "--project",
-            str(_runner_dir()),
-            "--no-deps",
-            str(torch_wheel),
-        ]
-        install_proc = subprocess.run(
-            install_cmd,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        if install_proc.returncode != 0:
-            raw_error = (
-                install_proc.stderr.strip()
-                or install_proc.stdout.strip()
-                or "nemo runner torch install failed"
-            )
-            error = " ".join(raw_error.splitlines())
-            if len(error) > 400:
-                error = f"{error[:400]}…"
+            error = _format_runner_error(raw_error)
             return NemoRunResult(
                 rtfx_mean=None,
                 rtfx_stdev=None,
@@ -196,9 +165,7 @@ def run_nemo_benchmark(
     if not stdout:
         if proc.returncode != 0:
             raw_error = proc.stderr.strip() or "nemo runner failed"
-            error = " ".join(raw_error.splitlines())
-            if len(error) > 400:
-                error = f"{error[:400]}…"
+            error = _format_runner_error(raw_error)
             return NemoRunResult(
                 rtfx_mean=None,
                 rtfx_stdev=None,
@@ -229,9 +196,7 @@ def run_nemo_benchmark(
     except json.JSONDecodeError:
         if proc.returncode != 0:
             raw_error = proc.stderr.strip() or proc.stdout.strip() or "nemo runner failed"
-            error = " ".join(raw_error.splitlines())
-            if len(error) > 400:
-                error = f"{error[:400]}…"
+            error = _format_runner_error(raw_error)
             return NemoRunResult(
                 rtfx_mean=None,
                 rtfx_stdev=None,

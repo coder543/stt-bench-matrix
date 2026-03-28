@@ -12,6 +12,7 @@ from .parakeet_mlx import ParakeetMlxFramework
 from .faster_whisper import FasterWhisperFramework
 from .whisperx import WhisperXFramework
 from .moonshine_transformers import MoonshineTransformersFramework
+from .cohere_transformers import CohereTransformersFramework
 from .granite_transformers import GraniteTransformersFramework
 from .nemotron_nemo import NemotronNemoFramework
 from .gemma_3n_onnx import Gemma3nOnnxFramework
@@ -27,6 +28,7 @@ def all_frameworks() -> list[Framework]:
         FasterWhisperFramework(),
         WhisperXFramework(),
         MoonshineTransformersFramework(),
+        CohereTransformersFramework(),
         ParakeetTransformersFramework(),
         ParakeetNemoFramework(),
         ParakeetMlxFramework(),
