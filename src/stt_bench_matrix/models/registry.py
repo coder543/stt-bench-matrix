@@ -63,6 +63,16 @@ def cohere_models() -> list[ModelSpec]:
     ]
 
 
+def apple_speech_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(
+            name="speech-transcriber",
+            size="default",
+            family="apple-speech",
+        ),
+    ]
+
+
 def nemotron_models() -> list[ModelSpec]:
     return [
         ModelSpec(

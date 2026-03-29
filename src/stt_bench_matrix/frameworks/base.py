@@ -19,6 +19,7 @@ class FrameworkInfo:
     supports_gemma: bool = False
     supports_lfm: bool = False
     supports_cohere: bool = False
+    supports_apple_speech: bool = False
 
 
 class Framework(Protocol):

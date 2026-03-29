@@ -122,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
             parakeet_models,
             canary_models,
             moonshine_models,
+            apple_speech_models,
             cohere_models,
             nemotron_models,
             granite_models,
@@ -142,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
                 variant = f" ({model.variant})" if model.variant else ""
                 print(f"  - {model.name} {model.size}{variant}")
         _print_models("whisper", whisper_models() + whisper_optional_models())
+        _print_models("apple-speech", apple_speech_models())
         _print_models("parakeet", parakeet_models())
         _print_models("canary", canary_models())
         _print_models("moonshine", moonshine_models())

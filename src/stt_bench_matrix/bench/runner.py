@@ -11,6 +11,10 @@ from .samples import SampleSpec
 from .wer import word_error_rate
 from ..frameworks.base import Framework
 from ..frameworks.registry import all_frameworks
+from ..frameworks.apple_speech import (
+    benchmark_apple_speech_models,
+    AppleSpeechFramework,
+)
 from ..frameworks.whisper_mlx import benchmark_whisper_models, WhisperMlxFramework
 from ..frameworks.lightning_whisper_mlx import (
     benchmark_whisper_models as benchmark_lightning_whisper_models,
@@ -76,6 +80,7 @@ from ..frameworks.nemotron_nemo import (
 from ..models.registry import (
     whisper_models,
     whisper_optional_models,
+    apple_speech_models,
     parakeet_models,
     canary_models,
     canary_optional_models,
@@ -95,6 +100,7 @@ def _benchmark_framework(
     framework: Framework,
     host: HostInfo,
     whisper_model_list: list[ModelSpec],
+    apple_speech_model_list: list[ModelSpec],
     faster_whisper_model_list: list[ModelSpec],
     canary_model_list: list[ModelSpec],
     parakeet_model_list: list[ModelSpec],
@@ -122,6 +128,16 @@ def _benchmark_framework(
             sample,
             whisper_model_list,
             use_cache=use_cache,
+            perf_config=perf_config,
+            warmup_sample=warmup_sample,
+            language=language,
+            progress=progress_cb,
+            on_result=on_result,
+        )
+    elif isinstance(framework, AppleSpeechFramework):
+        models = benchmark_apple_speech_models(
+            sample,
+            apple_speech_model_list,
             perf_config=perf_config,
             warmup_sample=warmup_sample,
             language=language,
@@ -332,6 +348,7 @@ def run_benchmarks(
     start = time.perf_counter()
     _ = use_cache
     whisper_model_list = whisper_models()
+    apple_speech_model_list = apple_speech_models()
     canary_model_list = canary_models()
     parakeet_model_list = parakeet_models()
     moonshine_model_list = moonshine_models()
@@ -373,6 +390,7 @@ def run_benchmarks(
             return any(token in candidates for token in model_filters)
 
         whisper_model_list = [m for m in whisper_model_list if _match_model(m)]
+        apple_speech_model_list = [m for m in apple_speech_model_list if _match_model(m)]
         canary_model_list = [m for m in canary_model_list if _match_model(m)]
         parakeet_model_list = [m for m in parakeet_model_list if _match_model(m)]
         moonshine_model_list = [m for m in moonshine_model_list if _match_model(m)]
@@ -404,6 +422,8 @@ def run_benchmarks(
             continue
         if framework.info.supports_granite and not granite_model_list:
             continue
+        if framework.info.supports_apple_speech and not apple_speech_model_list:
+            continue
         if framework.info.supports_moonshine and not moonshine_model_list:
             continue
         if framework.info.supports_cohere and not cohere_model_list:
@@ -428,6 +448,8 @@ def run_benchmarks(
                 total_steps += len(faster_whisper_model_list)
             else:
                 total_steps += len(whisper_model_list)
+        if framework.info.supports_apple_speech:
+            total_steps += len(apple_speech_model_list)
         if framework.info.supports_parakeet:
             total_steps += len(parakeet_model_list)
         if framework.info.supports_canary:
@@ -528,6 +550,7 @@ def run_benchmarks(
             framework,
             host,
             whisper_model_list,
+            apple_speech_model_list,
             faster_whisper_model_list,
             canary_model_list,
             parakeet_model_list,

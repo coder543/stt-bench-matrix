@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .base import Framework
 from .lightning_whisper_mlx import LightningWhisperMlxFramework
+from .apple_speech import AppleSpeechFramework
 from .whisper_mlx import WhisperMlxFramework
 from .whisper_cpp import WhisperCppFramework
 from .transformers_whisper import TransformersWhisperFramework
@@ -21,6 +22,7 @@ from .lfm_audio import LfmAudioFramework
 
 def all_frameworks() -> list[Framework]:
     return [
+        AppleSpeechFramework(),
         LightningWhisperMlxFramework(),
         WhisperMlxFramework(),
         WhisperCppFramework(),
