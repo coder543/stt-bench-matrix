@@ -1,0 +1,19 @@
+[project]
+name = "voxtral-runner"
+version = "0.1.0"
+description = "Subprocess runner for Voxtral via Transformers"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "accelerate",
+  "numpy",
+  "mistral-common[audio]",
+  "transformers>=5.4.0",
+  "torch>=2.11.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["voxtral_runner"]

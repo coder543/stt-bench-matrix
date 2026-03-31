@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--heavy",
         action="store_true",
         help=(
-            "Include heavy models (Granite 2B; Canary 2.5B; Gemma 3n; "
+            "Include heavy models (Granite 2B; Voxtral 4B; Canary 2.5B; Gemma 3n; "
             "LFM2.5 Audio; 8B is opt-in via --models)"
         ),
     )
@@ -124,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             moonshine_models,
             apple_speech_models,
             cohere_models,
+            voxtral_models,
             nemotron_models,
             granite_models,
             granite_optional_models,
@@ -148,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_models("canary", canary_models())
         _print_models("moonshine", moonshine_models())
         _print_models("cohere", cohere_models())
+        _print_models("voxtral", voxtral_models())
         _print_models("nemotron", nemotron_models())
         _print_models("granite", granite_models() + granite_optional_models())
         _print_models("gemma", gemma_models())

@@ -63,6 +63,16 @@ def cohere_models() -> list[ModelSpec]:
     ]
 
 
+def voxtral_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(
+            name="voxtral",
+            size="mini-4b-realtime-2602",
+            family="voxtral",
+        ),
+    ]
+
+
 def apple_speech_models() -> list[ModelSpec]:
     return [
         ModelSpec(

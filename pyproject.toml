@@ -36,3 +36,10 @@ packages = ["src/stt_bench_matrix"]
 dev = [
   "ty",
 ]
+
+[tool.ty.src]
+exclude = [
+  "tools/nemo_runner/",
+  "tools/parakeet_runner/",
+  "tools/voxtral_runner/",
+]
