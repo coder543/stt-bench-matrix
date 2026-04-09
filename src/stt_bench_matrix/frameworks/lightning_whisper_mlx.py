@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from ..bench.transcripts import extract_transcript
 
@@ -28,11 +28,6 @@ class LightningWhisperMlxFramework:
 
     def is_supported(self, host: HostInfo) -> bool:
         return host.is_macos and host.is_apple_silicon
-
-
-if TYPE_CHECKING:
-    from lightning_whisper_mlx import LightningWhisperMLX
-
 
 def _model_name_for_size(size: str) -> str:
     if size == "large-v3":

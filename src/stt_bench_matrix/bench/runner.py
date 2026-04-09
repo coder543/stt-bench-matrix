@@ -61,6 +61,10 @@ from ..frameworks.cohere_transformers import (
     benchmark_cohere_models,
     CohereTransformersFramework,
 )
+from ..frameworks.qwen3_asr_transformers import (
+    benchmark_qwen3_asr_models,
+    Qwen3AsrTransformersFramework,
+)
 from ..frameworks.voxtral_transformers import (
     benchmark_voxtral_models,
     VoxtralTransformersFramework,
@@ -90,6 +94,8 @@ from ..models.registry import (
     canary_optional_models,
     moonshine_models,
     cohere_models,
+    qwen3_asr_models,
+    qwen3_asr_optional_models,
     voxtral_models,
     nemotron_models,
     granite_models,
@@ -111,6 +117,7 @@ def _benchmark_framework(
     parakeet_model_list: list[ModelSpec],
     moonshine_model_list: list[ModelSpec],
     cohere_model_list: list[ModelSpec],
+    qwen3_asr_model_list: list[ModelSpec],
     voxtral_model_list: list[ModelSpec],
     nemotron_model_list: list[ModelSpec],
     granite_model_list: list[ModelSpec],
@@ -271,6 +278,17 @@ def _benchmark_framework(
             progress=progress_cb,
             on_result=on_result,
         )
+    elif isinstance(framework, Qwen3AsrTransformersFramework):
+        qwen3_asr_list = qwen3_asr_model_list
+        models = benchmark_qwen3_asr_models(
+            sample,
+            qwen3_asr_list,
+            perf_config=perf_config,
+            warmup_sample=warmup_sample,
+            language=language,
+            progress=progress_cb,
+            on_result=on_result,
+        )
     elif isinstance(framework, VoxtralTransformersFramework):
         voxtral_list = voxtral_model_list
         models = benchmark_voxtral_models(
@@ -369,6 +387,10 @@ def run_benchmarks(
     parakeet_model_list = parakeet_models()
     moonshine_model_list = moonshine_models()
     cohere_model_list = cohere_models()
+    qwen3_asr_model_list = qwen3_asr_models()
+    qwen3_asr_optional_list = qwen3_asr_optional_models() if (heavy or model_filters) else []
+    if qwen3_asr_optional_list:
+        qwen3_asr_model_list = qwen3_asr_model_list + qwen3_asr_optional_list
     voxtral_model_list = voxtral_models() if (heavy or model_filters) else []
     granite_model_list = granite_models() if (heavy or model_filters) else []
     gemma_model_list = gemma_models() if (heavy or model_filters) else []
@@ -412,6 +434,7 @@ def run_benchmarks(
         parakeet_model_list = [m for m in parakeet_model_list if _match_model(m)]
         moonshine_model_list = [m for m in moonshine_model_list if _match_model(m)]
         cohere_model_list = [m for m in cohere_model_list if _match_model(m)]
+        qwen3_asr_model_list = [m for m in qwen3_asr_model_list if _match_model(m)]
         voxtral_model_list = [m for m in voxtral_model_list if _match_model(m)]
         nemotron_model_list = [m for m in nemotron_model_list if _match_model(m)]
         granite_model_list = [m for m in granite_model_list if _match_model(m)]
@@ -446,6 +469,8 @@ def run_benchmarks(
             continue
         if framework.info.supports_cohere and not cohere_model_list:
             continue
+        if framework.info.supports_qwen3_asr and not qwen3_asr_model_list:
+            continue
         if framework.info.supports_voxtral and not voxtral_model_list:
             continue
         if framework.info.supports_nemotron and not nemotron_model_list:
@@ -478,6 +503,8 @@ def run_benchmarks(
             total_steps += len(moonshine_model_list)
         if framework.info.supports_cohere:
             total_steps += len(cohere_model_list)
+        if framework.info.supports_qwen3_asr:
+            total_steps += len(qwen3_asr_model_list)
         if framework.info.supports_voxtral:
             total_steps += len(voxtral_model_list)
         if framework.info.supports_nemotron:
@@ -578,6 +605,7 @@ def run_benchmarks(
             parakeet_model_list,
             moonshine_model_list,
             cohere_model_list,
+            qwen3_asr_model_list,
             voxtral_model_list,
             nemotron_model_list,
             granite_model_list,

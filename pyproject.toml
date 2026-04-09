@@ -41,5 +41,6 @@ dev = [
 exclude = [
   "tools/nemo_runner/",
   "tools/parakeet_runner/",
+  "tools/qwen_asr_runner/",
   "tools/voxtral_runner/",
 ]

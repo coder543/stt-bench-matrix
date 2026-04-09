@@ -63,6 +63,26 @@ def cohere_models() -> list[ModelSpec]:
     ]
 
 
+def qwen3_asr_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(
+            name="qwen3-asr",
+            size="0.6b",
+            family="qwen3-asr",
+        ),
+    ]
+
+
+def qwen3_asr_optional_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(
+            name="qwen3-asr",
+            size="1.7b",
+            family="qwen3-asr",
+        ),
+    ]
+
+
 def voxtral_models() -> list[ModelSpec]:
     return [
         ModelSpec(

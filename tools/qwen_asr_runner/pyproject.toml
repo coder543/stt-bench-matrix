@@ -1,0 +1,16 @@
+[project]
+name = "qwen-asr-runner"
+version = "0.1.0"
+description = "Subprocess runner for Qwen3-ASR via qwen-asr"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "qwen-asr==0.0.6",
+  "torch>=2.11.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["qwen_asr_runner"]

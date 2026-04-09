@@ -20,6 +20,7 @@ class FrameworkInfo:
     supports_lfm: bool = False
     supports_cohere: bool = False
     supports_voxtral: bool = False
+    supports_qwen3_asr: bool = False
     supports_apple_speech: bool = False
 
 

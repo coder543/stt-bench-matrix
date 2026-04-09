@@ -13,7 +13,6 @@
 
 ## Notes (host Blackwell bring-up)
 
-- Host venv GPU runs require `UV_NO_SYNC=1` to avoid uv reinstalling CPU-only torch.
 - Official PyTorch 2.11 CUDA wheels are available, so custom torch/torchaudio wheel overrides should no longer be needed for standard GPU runs.
 - Re-validate transformer-path performance on Blackwell now that CUTLASS issues are fixed in the official release.
 - Confirm NeMo runner stays on GPU without the old local wheel override path.
