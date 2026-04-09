@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Include heavy models (Granite 2B; Qwen3-ASR 1.7B; Voxtral 4B; Canary 2.5B; Gemma 3n; "
-            "LFM2.5 Audio; 8B is opt-in via --models)"
+            "VibeVoice ASR 8B; LFM2.5 Audio; 8B is opt-in via --models)"
         ),
     )
     parser.add_argument(
@@ -126,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             cohere_models,
             qwen3_asr_models,
             qwen3_asr_optional_models,
+            vibevoice_models,
             voxtral_models,
             nemotron_models,
             granite_models,
@@ -152,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_models("moonshine", moonshine_models())
         _print_models("cohere", cohere_models())
         _print_models("qwen3-asr", qwen3_asr_models() + qwen3_asr_optional_models())
+        _print_models("vibevoice", vibevoice_models())
         _print_models("voxtral", voxtral_models())
         _print_models("nemotron", nemotron_models())
         _print_models("granite", granite_models() + granite_optional_models())

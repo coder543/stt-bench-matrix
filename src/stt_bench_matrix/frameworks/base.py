@@ -21,6 +21,7 @@ class FrameworkInfo:
     supports_cohere: bool = False
     supports_voxtral: bool = False
     supports_qwen3_asr: bool = False
+    supports_vibevoice: bool = False
     supports_apple_speech: bool = False
 
 

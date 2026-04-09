@@ -83,6 +83,16 @@ def qwen3_asr_optional_models() -> list[ModelSpec]:
     ]
 
 
+def vibevoice_models() -> list[ModelSpec]:
+    return [
+        ModelSpec(
+            name="vibevoice-asr",
+            size="8b",
+            family="vibevoice",
+        ),
+    ]
+
+
 def voxtral_models() -> list[ModelSpec]:
     return [
         ModelSpec(

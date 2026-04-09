@@ -15,6 +15,7 @@ from .whisperx import WhisperXFramework
 from .moonshine_transformers import MoonshineTransformersFramework
 from .cohere_transformers import CohereTransformersFramework
 from .qwen3_asr_transformers import Qwen3AsrTransformersFramework
+from .vibevoice_transformers import VibeVoiceTransformersFramework
 from .voxtral_transformers import VoxtralTransformersFramework
 from .granite_transformers import GraniteTransformersFramework
 from .nemotron_nemo import NemotronNemoFramework
@@ -34,6 +35,7 @@ def all_frameworks() -> list[Framework]:
         MoonshineTransformersFramework(),
         CohereTransformersFramework(),
         Qwen3AsrTransformersFramework(),
+        VibeVoiceTransformersFramework(),
         VoxtralTransformersFramework(),
         ParakeetTransformersFramework(),
         ParakeetNemoFramework(),

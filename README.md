@@ -24,6 +24,7 @@ The goal is to run on **macOS or Linux**, across **Apple Silicon / NVIDIA / AMD*
 - **Moonshine** — tiny, base
 - **Cohere Transcribe** — 03-2026
 - **Qwen3-ASR** — 0.6b (optional heavy: 1.7b)
+- **VibeVoice ASR** — 8b (heavy)
 - **Mistral Voxtral Realtime** — Mini 4B Realtime 2602 (heavy)
 - **Nemotron Speech Streaming** — 0.6b
 - **Granite Speech 3.3** — 2b (optional heavy: 8b)
@@ -112,6 +113,7 @@ docker run --rm --gpus all --user "$(id -u):$(id -g)" \
 - NeMo on bare-metal Linux still depends on the host CUDA/cuDNN runtime matching the official Torch 2.11 cu13 stack. If you hit `CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`, install system cuDNN 13 runtime libraries (for example `libcudnn9-cuda-13`) or use `Dockerfile.cuda`, which already includes the matching runtime.
 - Cohere Transcribe runs via `cohere-transformers` against `CohereLabs/cohere-transcribe-03-2026` by default. Override with `COHERE_MODEL_ID`, adjust decode length with `STT_BENCH_COHERE_MAX_NEW_TOKENS`, and force math SDPA only if needed with `STT_BENCH_COHERE_FORCE_MATH_SDP=1`.
 - Qwen3-ASR runs via `qwen3-asr-transformers` in an isolated `tools/qwen_asr_runner` `uv` project because the upstream `qwen-asr` package currently pins its own Transformers stack. The benchmark uses `Qwen/Qwen3-ASR-0.6B` by default and adds `Qwen/Qwen3-ASR-1.7B` under `--heavy` or explicit `--models`.
+- VibeVoice ASR runs via `vibevoice-transformers` against `microsoft/VibeVoice-ASR-HF`. The benchmark decodes with `return_format="transcription_only"` so WER uses plain text, and you can pass context/hotwords with `STT_BENCH_VIBEVOICE_PROMPT` or lower memory usage with `STT_BENCH_VIBEVOICE_TOKENIZER_CHUNK_SIZE`.
 - Voxtral Realtime runs via `voxtral-transformers` against `mistralai/Voxtral-Mini-4B-Realtime-2602` in an isolated `tools/voxtral_runner` `uv` project because `mistral-common[audio]` conflicts with some of the main-environment model deps. It is gated behind `--heavy` or explicit `--models voxtral`.
 - Parakeet realtime EOU is a **streaming/EOU model**; offline WER on the full sample can look very poor even when GPU is working. Use it for latency/RTFx comparisons or stream-style evaluation rather than comparing WER directly.
 - Canary Qwen 2.5B is a SALM model; it requires NeMo with SpeechLM2 support and uses a prompt + audio input path instead of `transcribe()`.
