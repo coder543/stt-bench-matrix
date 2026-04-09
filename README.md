@@ -92,7 +92,8 @@ Run (persists caches and writes output):
 
 ```bash
 docker run --rm --gpus all --user "$(id -u):$(id -g)" \
-  -v "$HOME/.cache/huggingface:/workspace/.cache/huggingface" \
+  -e HF_HOME=/workspace/.cache/huggingface \
+  -v "$HF_HOME:/workspace/.cache/huggingface" \
   -v "$HOME/.cache/uv:/workspace/.cache/uv" \
   -v "$(pwd)/output:/workspace/output" \
   -w /workspace \
