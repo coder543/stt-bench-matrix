@@ -12,6 +12,7 @@ import wave
 from contextlib import nullcontext
 import re
 import sys
+import urllib.request
 
 
 def _wav_duration_seconds(path: str) -> float:
@@ -87,7 +88,7 @@ def _load_model(task: str, model_id: str, model_type: str | None):
 
         if model_type == "ctc":
             return EncDecCTCModelBPE.from_pretrained(model_id)
-        if model_type in {"rnnt", "tdt", "realtime-eou"}:
+        if model_type in {"rnnt", "tdt", "realtime-eou", "unified-rnnt"}:
             return EncDecRNNTBPEModel.from_pretrained(model_id)
         if model_type == "tdt-ctc":
             return ASRModel.from_pretrained(model_id)
@@ -121,6 +122,7 @@ def _configure_decoding(model, task: str, model_type: str | None) -> list[str]:
         "tdt-ctc",
         "realtime-eou",
         "cache-aware-rnnt",
+        "unified-rnnt",
     }:
         # Prefer fast greedy decoding when available.
         _set_attr_path(decoding, ["strategy"], "greedy_batch")
@@ -190,6 +192,46 @@ def _configure_logging() -> None:
     os.environ.setdefault("NEMO_LOG_LEVEL", "ERROR")
 
 
+_BUFFERED_RNNT_CONFIG_URL = (
+    "https://raw.githubusercontent.com/NVIDIA/NeMo/main/"
+    "examples/asr/conf/asr_streaming_inference/buffered_rnnt.yaml"
+)
+
+
+def _build_buffered_rnnt_pipeline(
+    *,
+    model_id: str,
+    device_note: str,
+    left_context_seconds: float,
+    chunk_seconds: float,
+    right_context_seconds: float,
+):
+    from omegaconf import OmegaConf
+    from nemo.collections.asr.inference.factory.pipeline_builder import PipelineBuilder  # type: ignore[unresolved-import]
+
+    with urllib.request.urlopen(_BUFFERED_RNNT_CONFIG_URL, timeout=30) as response:
+        raw = response.read().decode()
+    cfg = OmegaConf.create(raw)
+    cfg.asr.model_name = model_id
+    cfg.asr.device = "cuda" if device_note == "cuda" else "cpu"
+    cfg.asr.device_id = 0
+    cfg.asr.compute_dtype = "bfloat16" if device_note == "cuda" else "float32"
+    cfg.asr.use_amp = False
+    cfg.asr.decoding.strategy = "greedy_batch"
+    cfg.asr.decoding.greedy.use_cuda_graph_decoder = device_note == "cuda"
+    cfg.asr.decoding.greedy.enable_per_stream_biasing = False
+    cfg.enable_pnc = False
+    cfg.enable_itn = False
+    cfg.enable_nmt = False
+    cfg.asr_output_granularity = "segment"
+    cfg.streaming.left_padding_size = left_context_seconds
+    cfg.streaming.chunk_size = chunk_seconds
+    cfg.streaming.right_padding_size = right_context_seconds
+    cfg.pipeline_type = "buffered"
+    cfg.asr_decoding_type = "rnnt"
+    return PipelineBuilder.build_pipeline(cfg)
+
+
 def _render_run_progress(label: str, current: int, total: int) -> None:
     total = max(total, 1)
     current = min(max(current, 0), total)
@@ -246,7 +288,14 @@ def main() -> int:
     parser.add_argument("--auto-max-runs", type=int, default=30)
     parser.add_argument("--auto-target-cv", type=float, default=0.05)
     parser.add_argument("--chunk-seconds", type=float, default=40.0)
+    parser.add_argument("--left-context-seconds", type=float, default=5.6)
+    parser.add_argument("--right-context-seconds", type=float, default=0.0)
     parser.add_argument("--canary-auto-chunking", action="store_true")
+    parser.add_argument(
+        "--runner-mode",
+        choices=("transcribe", "buffered"),
+        default="transcribe",
+    )
     parser.add_argument(
         "--decode-mode",
         choices=("tdt", "ctc"),
@@ -273,9 +322,20 @@ def main() -> int:
     if cuda_err and torch.cuda.is_available():
         device_note = f"cpu (cuda unavailable: {cuda_err})"
 
-    model = _load_model(args.task, args.model_id, args.model_type)
-    model.eval()
-    model = model.to(device)
+    model = None
+    pipeline = None
+    if args.runner_mode == "buffered":
+        pipeline = _build_buffered_rnnt_pipeline(
+            model_id=args.model_id,
+            device_note=device_note,
+            left_context_seconds=args.left_context_seconds,
+            chunk_seconds=args.chunk_seconds,
+            right_context_seconds=args.right_context_seconds,
+        )
+    else:
+        model = _load_model(args.task, args.model_id, args.model_type)
+        model.eval()
+        model = model.to(device)
     if args.model_type in {"salm", "cache-aware-rnnt"}:
         try:
             torch.backends.cuda.enable_flash_sdp(False)
@@ -308,7 +368,7 @@ def main() -> int:
                 att_context = None
             if att_context is not None:
                 applied = False
-                encoder = getattr(model, "encoder", None)
+                encoder = getattr(model, "encoder", None) if model is not None else None
                 if encoder is not None and hasattr(encoder, "set_default_att_context_size"):
                     try:
                         encoder.set_default_att_context_size(att_context)
@@ -342,7 +402,7 @@ def main() -> int:
         # Avoid garbage transcripts on this model when autocast is enabled.
         use_autocast = False
         precision_note = "fp32"
-    decode_notes = _configure_decoding(model, args.task, args.model_type)
+    decode_notes = _configure_decoding(model, args.task, args.model_type) if model is not None else []
     decode_note = "; ".join(decode_notes) if decode_notes else None
     if args.model_type == "tdt-ctc" and args.decode_mode:
         cfg = getattr(model, "cfg", None)
@@ -421,6 +481,13 @@ def main() -> int:
             if use_autocast
             else nullcontext()
         )
+        if pipeline is not None:
+            output = pipeline.run([audio_path])
+            if output and isinstance(output[0], dict):
+                text = output[0].get("text")
+                if isinstance(text, str) and text.strip():
+                    return _strip_tags(text)
+            return _extract_transcript(output)
         salm_prompt = os.environ.get("STT_BENCH_SALM_PROMPT", "Transcribe the following:")
         salm_max_tokens_env = os.environ.get("STT_BENCH_SALM_MAX_NEW_TOKENS")
         try:
@@ -550,6 +617,10 @@ def main() -> int:
                     joined = " ".join(texts).strip()
                     return joined or None
             if sample_seconds <= args.chunk_seconds:
+                if args.model_type == "unified-rnnt" and getattr(model.cfg, "validation_ds", None) is None:
+                    from omegaconf import OmegaConf
+
+                    model.cfg.validation_ds = OmegaConf.create({})
                 transcribe_kwargs = {}
                 outputs = model.transcribe(
                     audio=[audio_path],
@@ -567,6 +638,10 @@ def main() -> int:
                     audio_path, args.chunk_seconds, overlap_seconds, temp_dir
                 )
                 transcribe_kwargs = {}
+                if args.model_type == "unified-rnnt" and getattr(model.cfg, "validation_ds", None) is None:
+                    from omegaconf import OmegaConf
+
+                    model.cfg.validation_ds = OmegaConf.create({})
                 outputs = model.transcribe(
                     audio=chunk_paths,
                     batch_size=1,

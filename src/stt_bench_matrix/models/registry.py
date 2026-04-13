@@ -152,6 +152,9 @@ def parakeet_models() -> list[ModelSpec]:
     return [
         ModelSpec(name="parakeet-ctc", size="0.6b", family="parakeet"),
         ModelSpec(name="parakeet-ctc", size="1.1b", family="parakeet"),
+        ModelSpec(name="parakeet-unified", size="0.6b", family="parakeet", variant="offline"),
+        ModelSpec(name="parakeet-unified", size="0.6b", family="parakeet", variant="1.12s"),
+        ModelSpec(name="parakeet-unified", size="0.6b", family="parakeet", variant="0.32s"),
         ModelSpec(name="parakeet-rnnt", size="0.6b", family="parakeet"),
         ModelSpec(name="parakeet-rnnt", size="1.1b", family="parakeet"),
         ModelSpec(name="parakeet-tdt", size="0.6b-v3", family="parakeet"),

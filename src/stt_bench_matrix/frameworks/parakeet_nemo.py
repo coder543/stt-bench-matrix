@@ -29,6 +29,8 @@ class ParakeetNemoFramework:
 
 
 def _model_id(spec: ModelSpec) -> str:
+    if spec.name == "parakeet-unified":
+        return "nvidia/parakeet-unified-en-0.6b"
     if spec.name == "parakeet-ctc":
         if spec.size == "1.1b":
             return "nvidia/parakeet-ctc-1.1b"
@@ -59,6 +61,8 @@ def _model_id(spec: ModelSpec) -> str:
 
 
 def _model_type(spec: ModelSpec) -> str:
+    if spec.name == "parakeet-unified":
+        return "unified-rnnt"
     if spec.name == "parakeet-ctc":
         return "ctc"
     if spec.name == "parakeet-rnnt":
@@ -75,6 +79,24 @@ def _model_type(spec: ModelSpec) -> str:
 def _decode_mode(spec: ModelSpec) -> str | None:
     if spec.name == "parakeet-tdt-ctc":
         return spec.variant or "tdt"
+    return None
+
+
+def _runner_mode(spec: ModelSpec) -> str | None:
+    if spec.name != "parakeet-unified":
+        return None
+    if spec.variant == "offline":
+        return "transcribe"
+    return "buffered"
+
+
+def _streaming_context(spec: ModelSpec) -> tuple[float, float, float] | None:
+    if spec.name != "parakeet-unified":
+        return None
+    if spec.variant == "1.12s":
+        return (5.6, 0.56, 0.56)
+    if spec.variant == "0.32s":
+        return (5.6, 0.08, 0.24)
     return None
 
 
@@ -95,6 +117,8 @@ def benchmark_parakeet_models(
         model_id_fn=_model_id,
         model_type_fn=_model_type,
         decode_mode_fn=_decode_mode,
+        runner_mode_fn=_runner_mode,
+        streaming_context_fn=_streaming_context,
         progress=progress,
         on_result=on_result,
     )

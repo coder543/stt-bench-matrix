@@ -64,6 +64,8 @@ def run_nemo_benchmark(
     warmup_sample: SampleSpec | None = None,
     chunk_seconds: float = 40.0,
     canary_auto_chunking: bool | None = None,
+    runner_mode: str | None = None,
+    streaming_context: tuple[float, float, float] | None = None,
 ) -> NemoRunResult:
     runner_script = _runner_script()
     if not runner_script.exists():
@@ -124,6 +126,20 @@ def run_nemo_benchmark(
         cmd.extend(["--model-type", model_type])
     if decode_mode is not None:
         cmd.extend(["--decode-mode", decode_mode])
+    if runner_mode is not None:
+        cmd.extend(["--runner-mode", runner_mode])
+    if streaming_context is not None:
+        left_context, middle_context, right_context = streaming_context
+        cmd.extend(
+            [
+                "--left-context-seconds",
+                str(left_context),
+                "--right-context-seconds",
+                str(right_context),
+                "--chunk-seconds",
+                str(middle_context),
+            ]
+        )
     skip_sync = str(env.get("UV_NO_SYNC", "")).lower() in {"1", "true", "yes", "y"}
     if not skip_sync:
         sync_cmd = [
@@ -248,6 +264,8 @@ def benchmark_nemo_models(
     chunk_seconds: float | None = None,
     chunk_seconds_fn=None,
     canary_auto_chunking_fn=None,
+    runner_mode_fn=None,
+    streaming_context_fn=None,
     progress=None,
     on_result=None,
 ) -> list[ModelBenchmark]:
@@ -258,6 +276,10 @@ def benchmark_nemo_models(
         decode_mode = decode_mode_fn(model) if decode_mode_fn is not None else None
         canary_auto_chunking = (
             canary_auto_chunking_fn(model) if canary_auto_chunking_fn is not None else None
+        )
+        runner_mode = runner_mode_fn(model) if runner_mode_fn is not None else None
+        streaming_context = (
+            streaming_context_fn(model) if streaming_context_fn is not None else None
         )
         if chunk_seconds_fn is not None:
             resolved_chunk_seconds = chunk_seconds_fn(model)
@@ -273,6 +295,8 @@ def benchmark_nemo_models(
             warmup_sample=warmup_sample,
             chunk_seconds=resolved_chunk_seconds,
             canary_auto_chunking=canary_auto_chunking,
+            runner_mode=runner_mode,
+            streaming_context=streaming_context,
         )
         if run_result.error:
             results.append(
